@@ -1,5 +1,7 @@
 import os
+import time
 from contextlib import asynccontextmanager
+from typing import Awaitable
 
 import httpx
 from dotenv import load_dotenv
@@ -16,6 +18,7 @@ from github_client import (
     get_repo_files,
     parse_repo_url,
 )
+from scanner_engine import scan_repository
 
 load_dotenv()
 
@@ -47,27 +50,25 @@ app.add_middleware(
 )
 
 
-class ScanPreviewRequest(BaseModel):
+class ScanRequest(BaseModel):
     repo_url: str
 
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "service": SERVICE_NAME}
-
-
-@app.post("/scan/preview")
-async def scan_preview(request: ScanPreviewRequest):
+def _require_token() -> str:
     if not GITHUB_TOKEN:
         raise HTTPException(
             status_code=500,
             detail="GITHUB_TOKEN is not configured. Add it to backend/.env",
         )
-    client = app.state.github
+    return GITHUB_TOKEN
+
+
+async def _github_call(coro: Awaitable):
+    """Await a github_client/scanner_engine coroutine, mapping errors to HTTP."""
     try:
-        owner, repo = parse_repo_url(request.repo_url)
-        files = await get_repo_files(request.repo_url, GITHUB_TOKEN, client=client)
-        rate = await check_rate_limit(GITHUB_TOKEN, client=client)
+        return await coro
+    except HTTPException:
+        raise  # already an HTTP error (e.g. 429 from rate limiting)
     except InvalidRepoURLError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except InvalidTokenError as exc:
@@ -80,9 +81,43 @@ async def scan_preview(request: ScanPreviewRequest):
         raise HTTPException(
             status_code=502, detail=f"GitHub API request failed: {exc}"
         ) from exc
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": SERVICE_NAME}
+
+
+@app.post("/scan/preview")
+async def scan_preview(request: ScanRequest):
+    token = _require_token()
+    client = app.state.github
+    try:
+        owner, repo = parse_repo_url(request.repo_url)
+    except InvalidRepoURLError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    files = await _github_call(get_repo_files(request.repo_url, token, client=client))
+    rate = await _github_call(check_rate_limit(token, client=client))
     return {
         "repo": f"{owner}/{repo}",
         "python_files_found": len(files),
         "files": files,
         "rate_limit_remaining": rate["remaining"],
     }
+
+
+@app.post("/scan")
+async def scan(request: ScanRequest):
+    token = _require_token()
+    start = time.perf_counter()
+    report = await _github_call(
+        scan_repository(request.repo_url, token, app.state.github)
+    )
+    report["scan_duration_seconds"] = round(time.perf_counter() - start, 2)
+    return report
+
+
+@app.get("/scan/status")
+async def scan_status():
+    token = _require_token()
+    return await _github_call(check_rate_limit(token, client=app.state.github))
