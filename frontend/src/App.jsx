@@ -12,6 +12,11 @@ const FILTER_TABS = [
 ];
 
 const TOKEN_KEY = "qlint_token";
+const GITHUB_LOGIN_URL = `${API_BASE}/auth/github/login`;
+
+const startGithubOAuth = () => {
+  window.location.href = GITHUB_LOGIN_URL;
+};
 
 function repoNameFromUrl(url) {
   const match = url.match(/github\.com\/([^/]+)\/([^/#?]+)/);
@@ -160,6 +165,32 @@ function PersonIcon() {
   );
 }
 
+/** Simple geometric octocat: round head, two ears, a tentacle stub. */
+function GitHubIcon({ stroke = "#FFFFFF", size = 16 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={stroke}
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="7.5" />
+      <path d="M7 5.5 L6 2.5 L9 4" />
+      <path d="M17 5.5 L18 2.5 L15 4" />
+      <path d="M9.5 21.5 v-3 a2.5 2.5 0 0 1 5 0 v3" />
+    </svg>
+  );
+}
+
+function Toast({ message }) {
+  return <div className="toast">{message}</div>;
+}
+
 function Navbar({
   theme,
   onToggleTheme,
@@ -169,6 +200,7 @@ function Navbar({
   onLogout,
   onShowHistory,
   onShowAdmin,
+  onDisconnectGithub,
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = () => setSidebarOpen(false);
@@ -206,6 +238,27 @@ function Navbar({
                   {truncateEmail(user.email)}
                 </span>
               </span>
+              {user.github_connected ? (
+                <span className="gh-status" title={user.github_username ?? ""}>
+                  <span className="gh-status-label">GitHub Connected</span>
+                  <button
+                    className="gh-disconnect"
+                    type="button"
+                    onClick={onDisconnectGithub}
+                  >
+                    Disconnect
+                  </button>
+                </span>
+              ) : (
+                <button
+                  className="nav-btn nav-btn-icon"
+                  type="button"
+                  onClick={startGithubOAuth}
+                >
+                  <GitHubIcon />
+                  Connect GitHub
+                </button>
+              )}
               <button
                 className="nav-btn"
                 type="button"
@@ -280,6 +333,19 @@ function Navbar({
                 Admin
               </button>
             )}
+            {/* .nav-btn and .gh-status are hidden on mobile, so the GitHub
+                connection is managed from here instead. */}
+            <button
+              className="sidebar-item"
+              type="button"
+              onClick={() => {
+                closeSidebar();
+                if (user.github_connected) onDisconnectGithub();
+                else startGithubOAuth();
+              }}
+            >
+              {user.github_connected ? "Disconnect GitHub" : "Connect GitHub"}
+            </button>
             <button
               className="sidebar-item"
               type="button"
@@ -388,8 +454,12 @@ function ScanInputCard({
   onScan,
   error,
   onClearError,
+  user,
 }) {
   const rateTooLow = rateLimit != null && rateLimit.remaining < 100;
+  // A connected GitHub account supplies the credential, so the manual token
+  // field is redundant.
+  const usingConnectedGithub = !!user?.github_connected;
   return (
     <section className="scan-section" id="scan-input">
       <div className="scan-card">
@@ -405,13 +475,15 @@ function ScanInputCard({
             }}
             placeholder="https://github.com/username/repository"
           />
-          <button
-            className="token-toggle"
-            type="button"
-            onClick={() => setTokenVisible(!tokenVisible)}
-          >
-            {tokenVisible ? "Hide token" : "Add token"}
-          </button>
+          {!usingConnectedGithub && (
+            <button
+              className="token-toggle"
+              type="button"
+              onClick={() => setTokenVisible(!tokenVisible)}
+            >
+              {tokenVisible ? "Hide token" : "Add token"}
+            </button>
+          )}
           <button
             className="scan-btn"
             type="button"
@@ -422,7 +494,12 @@ function ScanInputCard({
           </button>
         </div>
         {urlError && <p className="url-error">{urlError}</p>}
-        {tokenVisible && (
+        {usingConnectedGithub && (
+          <p className="gh-using-note">
+            Using your connected GitHub account for API access
+          </p>
+        )}
+        {tokenVisible && !usingConnectedGithub && (
           <div className="token-section">
             <div className="token-label">GitHub Personal Access Token</div>
             <input
@@ -1047,6 +1124,19 @@ function AuthModal({ mode, loading, error, onSubmit, onClose, onSwitch }) {
           {loading ? "Please wait..." : isSignup ? "Create account" : "Log in"}
         </button>
 
+        <div className="auth-divider">
+          <span className="auth-divider-text">or</span>
+        </div>
+
+        <button
+          className="auth-github-btn"
+          type="button"
+          onClick={startGithubOAuth}
+        >
+          <GitHubIcon stroke="currentColor" />
+          Continue with GitHub
+        </button>
+
         <p className="auth-switch">
           {isSignup ? "Already have an account? " : "Don't have an account? "}
           <span className="auth-switch-action" onClick={onSwitch}>
@@ -1421,6 +1511,8 @@ export default function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState(null);
 
+  const [toast, setToast] = useState(null);
+
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminStats, setAdminStats] = useState(null);
   const [adminLoading, setAdminLoading] = useState(false);
@@ -1452,11 +1544,61 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
+  const showToast = (message) => {
+    setToast(message);
+    setTimeout(() => setToast(null), 2000);
+  };
+
+  // Handle the OAuth callback landing before anything else touches the token:
+  // /?github_token=...&github_user=... on success, /?github_error=... on failure.
+  // Read during the first render, because the effect below strips the params.
+  const [oauthLanding] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      token: params.get("github_token"),
+      error: params.get("github_error"),
+    };
+  });
+
+  useEffect(() => {
+    const oauthToken = oauthLanding.token;
+    const oauthError = oauthLanding.error;
+    if (!oauthToken && !oauthError) return;
+
+    // Drop the params so a refresh does not replay the callback.
+    window.history.replaceState({}, "", window.location.pathname);
+
+    if (oauthError) {
+      showToast("GitHub connection failed");
+      return;
+    }
+
+    localStorage.setItem(TOKEN_KEY, oauthToken);
+    fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${oauthToken}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        setUser(data);
+        setAuthToken(oauthToken);
+        showToast("GitHub connected successfully");
+      })
+      .catch(() => {
+        localStorage.removeItem(TOKEN_KEY);
+        showToast("GitHub connection failed");
+      });
+  }, []);
+
   // Restore a previous session from localStorage, dropping a token the
   // backend no longer accepts.
   useEffect(() => {
     const stored = localStorage.getItem(TOKEN_KEY);
     if (!stored) return;
+    // The OAuth effect above owns this render pass when it just landed.
+    if (oauthLanding.token) return;
     fetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${stored}` },
     })
@@ -1619,6 +1761,24 @@ export default function App() {
     }
   };
 
+  const disconnectGithub = async () => {
+    if (!authToken) return;
+    try {
+      const res = await fetch(`${API_BASE}/auth/github/disconnect`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setUser((prev) =>
+        prev
+          ? { ...prev, github_connected: false, github_username: null }
+          : prev
+      );
+      showToast("GitHub disconnected");
+    } catch {
+      showToast("Could not disconnect GitHub");
+    }
+  };
+
   const loadAdminStats = async (token) => {
     setAdminLoading(true);
     setAdminError(null);
@@ -1774,7 +1934,9 @@ export default function App() {
           setAdminUsersPage(1);
           setShowAdmin(true);
         }}
+        onDisconnectGithub={disconnectGithub}
       />
+      {toast && <Toast message={toast} />}
       <div className="main-content">
         <main className="main">
           {view === "input" && (
@@ -1792,6 +1954,7 @@ export default function App() {
                 statusFailed={statusFailed}
                 scanning={false}
                 onScan={() => handleScan(false)}
+                user={user}
                 error={error}
                 onClearError={() => setError(null)}
               />

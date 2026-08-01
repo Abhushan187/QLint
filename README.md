@@ -27,6 +27,7 @@ QLint/
 │   ├── routers/
 │   │   ├── admin_router.py
 │   │   ├── auth_router.py
+│   │   ├── oauth_router.py
 │   │   ├── scan_router.py
 │   │   └── user_router.py
 │   ├── github_client.py
@@ -44,7 +45,8 @@ QLint/
 │       ├── test_scanner_engine.py
 │       ├── test_auth.py
 │       ├── test_routers.py
-│       └── test_admin.py
+│       ├── test_admin.py
+│       └── test_oauth.py
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx
@@ -83,7 +85,24 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:5174 in your browser.
+
+### GitHub OAuth App
+
+Needed for the **Connect GitHub** and **Continue with GitHub** buttons.
+
+1. Go to github.com -> **Settings** -> **Developer Settings** -> **OAuth Apps**
+   -> **New OAuth App**
+2. Application name: `QLint`
+3. Homepage URL: `http://localhost:5174`
+4. Authorization callback URL: `http://localhost:8000/auth/github/callback`
+5. Click **Register application**
+6. Copy the **Client ID** into `GITHUB_CLIENT_ID` in `backend/.env`
+7. Click **Generate a new client secret** and copy it into `GITHUB_CLIENT_SECRET`
+8. Restart uvicorn
+
+The frontend dev server is pinned to port 5174 (`frontend/vite.config.js`) so
+the callback URL always matches.
 
 ### MongoDB
 
@@ -135,6 +154,10 @@ GITHUB_TOKEN=your_token_here
 | `JWT_EXPIRE_MINUTES`   | `1440`                      | Token lifetime (24 hours)                  |
 | `SCAN_CACHE_TTL_HOURS` | `24`                        | How long a cached scan result stays fresh  |
 | `ADMIN_SECRET`         | —                           | Shared secret for the one-time admin bootstrap |
+| `GITHUB_CLIENT_ID`     | —                           | GitHub OAuth app client ID                 |
+| `GITHUB_CLIENT_SECRET` | —                           | GitHub OAuth app client secret             |
+| `GITHUB_OAUTH_REDIRECT_URI` | `http://localhost:8000/auth/github/callback` | Must match the OAuth app callback |
+| `FRONTEND_URL`         | `http://localhost:5174`     | Where the OAuth callback sends the browser |
 
 ## Running Tests
 
@@ -174,6 +197,25 @@ appear in that user's history.
 | GET    | `/user/scans`             | JWT  | Paginated history (`page`, `limit` — max 50)    |
 | GET    | `/user/scans/{id}/full`   | JWT  | Full stored report for one scan                 |
 | DELETE | `/user/scans/{id}`        | JWT  | Delete one of your own scans                    |
+
+### GitHub OAuth
+
+| Method | Endpoint                   | Auth | Description                                  |
+| ------ | -------------------------- | ---- | -------------------------------------------- |
+| GET    | `/auth/github/login`       | —    | Redirects to GitHub's consent screen         |
+| GET    | `/auth/github/callback`    | —    | Exchanges the code, then redirects to the frontend with a JWT |
+| GET    | `/auth/github/disconnect`  | JWT  | Clears the stored OAuth token                |
+
+Connecting GitHub stores that user's OAuth token on their account. `POST /scan`
+then picks a credential in this order:
+
+1. `github_token` in the request body (a token pasted into the form)
+2. the signed-in user's connected GitHub account
+3. `GITHUB_TOKEN` from the environment
+
+So a user with GitHub connected never has to paste a token. Signing in through
+GitHub also works for brand new accounts: they are created with no password and
+can only sign in through GitHub afterwards.
 
 ### Admin
 
@@ -225,8 +267,8 @@ share one entry.
 
 - ~~F9: Auth (JWT + MongoDB), user accounts, scan history, scan caching~~ (done)
 - ~~F11: Admin dashboard~~ (done)
+- ~~F12: GitHub OAuth~~ (done)
 - F10: Team workspaces
-- F12: GitHub OAuth
 - F13: JS/TS scanning
 - F14: Stripe integration
 - F15: AI context-aware patches

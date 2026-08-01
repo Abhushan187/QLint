@@ -2529,3 +2529,116 @@ input {
     flex-direction: column;
   }
 }
+
+/* ---------------------------------------------------------- github oauth */
+
+.nav-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gh-status {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--safe);
+  cursor: default;
+  white-space: nowrap;
+}
+
+.gh-disconnect {
+  display: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--safe);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.gh-status:hover .gh-status-label {
+  display: none;
+}
+
+.gh-status:hover .gh-disconnect {
+  display: inline;
+}
+
+.gh-using-note {
+  font-size: 12px;
+  color: var(--safe);
+  margin: 10px 0 0;
+}
+
+/* auth modal: divider + github button */
+
+.auth-divider {
+  position: relative;
+  text-align: center;
+  margin: 20px 0 16px;
+}
+
+.auth-divider::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-divider-text {
+  position: relative;
+  padding: 0 12px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.auth-github-btn {
+  width: 100%;
+  height: 44px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.auth-github-btn:hover {
+  background: var(--bg);
+}
+
+/* toast */
+
+.toast {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 10px 20px;
+  font-size: 13px;
+  color: var(--text-primary);
+  max-width: calc(100vw - 32px);
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .gh-status {
+    display: none;
+  }
+}

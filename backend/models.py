@@ -31,12 +31,32 @@ class UserLogin(BaseModel):
         return value.strip().lower()
 
 
+class UserDocument(BaseModel):
+    """Shape of a document in the `users` collection.
+
+    Declared for reference — MongoDB writes go through plain dicts, and every
+    reader treats the optional fields as absent-means-default so accounts
+    created before a field existed keep working.
+    """
+
+    email: str
+    password_hash: str | None = None  # None for GitHub-only accounts
+    created_at: datetime
+    scan_count: int = 0
+    role: str = "user"
+    github_access_token: str | None = None
+    github_username: str | None = None
+    github_connected: bool = False
+
+
 class UserResponse(BaseModel):
     id: str
     email: str
     created_at: str
     scan_count: int
     role: str = "user"
+    github_connected: bool = False
+    github_username: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -69,4 +89,6 @@ def user_to_response(user: dict) -> UserResponse:
         scan_count=int(user.get("scan_count", 0)),
         # Accounts created before roles existed are plain users.
         role=user.get("role", "user"),
+        github_connected=bool(user.get("github_connected", False)),
+        github_username=user.get("github_username"),
     )

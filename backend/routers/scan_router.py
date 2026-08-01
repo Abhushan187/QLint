@@ -36,6 +36,7 @@ router = APIRouter()
 class ScanRequest(BaseModel):
     repo_url: str
     force_refresh: bool = False
+    github_token: str | None = None
 
 
 def _require_token() -> str:
@@ -45,6 +46,19 @@ def _require_token() -> str:
             detail="GITHUB_TOKEN is not configured. Add it to backend/.env",
         )
     return GITHUB_TOKEN
+
+
+def _resolve_token(body: ScanRequest, user: dict | None) -> str:
+    """Pick the GitHub credential for this scan.
+
+    A token pasted into the form wins, then the signed-in user's connected
+    GitHub account, then the server-wide token from the environment.
+    """
+    if body.github_token:
+        return body.github_token.strip()
+    if user and user.get("github_connected") and user.get("github_access_token"):
+        return user["github_access_token"]
+    return _require_token()
 
 
 async def _github_call(coro: Awaitable):
@@ -120,7 +134,7 @@ async def scan(
     body: ScanRequest,
     user: dict | None = Depends(get_optional_user),
 ):
-    token = _require_token()
+    token = _resolve_token(body, user)
     repo_url = _canonical_url(body.repo_url)
 
     if not body.force_refresh:
