@@ -2203,3 +2203,329 @@ input {
     padding: 24px 16px;
   }
 }
+
+/* ---------------------------------------------------------- admin panel */
+
+.admin-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 500;
+  overflow-y: auto;
+  padding: 40px;
+}
+
+.admin-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.admin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.admin-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.admin-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.admin-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.admin-close:hover {
+  color: var(--text-primary);
+}
+
+.admin-message {
+  font-size: 14px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px;
+}
+
+/* section 1: stat cards */
+
+.admin-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.admin-stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.admin-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+}
+
+.admin-stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 8px;
+}
+
+/* shared card shell for sections 2-4 */
+
+.admin-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.admin-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+/* section 2: two columns */
+
+.admin-columns {
+  display: flex;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.admin-columns > .admin-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-list-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-list-row:last-child {
+  border-bottom: none;
+}
+
+.admin-list-key {
+  font-size: 13px;
+  font-family: var(--mono);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-list-value {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* section 3: css bar chart */
+
+.admin-chart {
+  margin-top: 24px;
+}
+
+.admin-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.admin-bar-label {
+  width: 80px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-bar-track {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-bar {
+  height: 20px;
+  border-radius: 4px;
+  min-width: 4px;
+}
+
+.admin-bar-critical {
+  background: var(--critical);
+}
+
+.admin-bar-warning {
+  background: var(--warning);
+}
+
+.admin-bar-safe {
+  background: var(--safe);
+}
+
+.admin-bar-info {
+  background: var(--info);
+}
+
+.admin-bar-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 32px;
+}
+
+/* section 4: users table */
+
+.admin-table-card {
+  margin-top: 24px;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.admin-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.role-pill {
+  display: inline-block;
+  border-radius: 100px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.role-admin {
+  background: var(--navy);
+  color: #ffffff;
+}
+
+.role-user {
+  background: var(--border);
+  color: var(--text-secondary);
+}
+
+.admin-delete-btn {
+  background: transparent;
+  border: 1px solid var(--critical);
+  color: var(--critical);
+  border-radius: var(--radius);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.admin-delete-btn:hover {
+  background: var(--critical-bg);
+}
+
+.admin-self {
+  color: var(--text-muted);
+}
+
+.admin-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.admin-pager-btn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+  font-size: 13px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.admin-pager-btn:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.admin-pager-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.admin-pager-info {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .admin-stat-card,
+[data-theme="dark"] .admin-card {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .role-admin {
+  background: #ffffff;
+  color: var(--navy);
+}
+
+@media (max-width: 768px) {
+  .admin-overlay {
+    padding: 24px 16px;
+  }
+
+  .admin-columns {
+    flex-direction: column;
+  }
+}

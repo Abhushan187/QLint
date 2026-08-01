@@ -36,6 +36,7 @@ class UserResponse(BaseModel):
     email: str
     created_at: str
     scan_count: int
+    role: str = "user"
 
 
 class TokenResponse(BaseModel):
@@ -66,4 +67,6 @@ def user_to_response(user: dict) -> UserResponse:
         email=user["email"],
         created_at=str(created_at),
         scan_count=int(user.get("scan_count", 0)),
+        # Accounts created before roles existed are plain users.
+        role=user.get("role", "user"),
     )

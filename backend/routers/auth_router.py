@@ -33,6 +33,7 @@ async def register(body: UserRegister):
             "password_hash": hash_password(body.password),
             "created_at": datetime.now(timezone.utc),
             "scan_count": 0,
+            "role": "user",
         }
         result = await users.insert_one(document)
     except DuplicateKeyError as exc:

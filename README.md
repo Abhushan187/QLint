@@ -25,6 +25,7 @@ QLint/
 │   ├── auth.py
 │   ├── models.py
 │   ├── routers/
+│   │   ├── admin_router.py
 │   │   ├── auth_router.py
 │   │   ├── scan_router.py
 │   │   └── user_router.py
@@ -42,7 +43,8 @@ QLint/
 │       ├── test_github_client.py
 │       ├── test_scanner_engine.py
 │       ├── test_auth.py
-│       └── test_routers.py
+│       ├── test_routers.py
+│       └── test_admin.py
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx
@@ -132,6 +134,7 @@ GITHUB_TOKEN=your_token_here
 | `JWT_ALGORITHM`        | `HS256`                     | JWT signing algorithm                      |
 | `JWT_EXPIRE_MINUTES`   | `1440`                      | Token lifetime (24 hours)                  |
 | `SCAN_CACHE_TTL_HOURS` | `24`                        | How long a cached scan result stays fresh  |
+| `ADMIN_SECRET`         | —                           | Shared secret for the one-time admin bootstrap |
 
 ## Running Tests
 
@@ -172,6 +175,30 @@ appear in that user's history.
 | GET    | `/user/scans/{id}/full`   | JWT  | Full stored report for one scan                 |
 | DELETE | `/user/scans/{id}`        | JWT  | Delete one of your own scans                    |
 
+### Admin
+
+Every `/admin` route requires a valid token belonging to an account with
+`role: "admin"`, and returns **403 Admin access required** otherwise.
+
+| Method | Endpoint             | Auth   | Description                                    |
+| ------ | -------------------- | ------ | ---------------------------------------------- |
+| POST   | `/admin/make-admin`  | secret | Bootstrap: `{"email", "secret"}` promotes an account |
+| GET    | `/admin/stats`       | admin  | Usage totals, top repos/users/algorithms       |
+| GET    | `/admin/users`       | admin  | Paginated user list (`page`, `limit` — max 100) |
+| GET    | `/admin/scans`       | admin  | Paginated scan list across all users           |
+| DELETE | `/admin/users/{id}`  | admin  | Delete a user and all their scans              |
+
+New accounts are created with `role: "user"`. Grant yourself admin once, using
+the `ADMIN_SECRET` from `backend/.env`:
+
+```bash
+curl -X POST http://localhost:8000/admin/make-admin -H "Content-Type: application/json" -d '{"email": "you@example.com", "secret": "your_admin_secret"}'
+```
+
+`/admin/make-admin` is deliberately unauthenticated — it is the only way to
+create the first admin — but it is useless without the secret. An admin cannot
+delete their own account.
+
 ## Scan Caching
 
 Every completed scan is stored in the `scans` collection with an expiry of
@@ -197,8 +224,8 @@ share one entry.
 ## Roadmap
 
 - ~~F9: Auth (JWT + MongoDB), user accounts, scan history, scan caching~~ (done)
+- ~~F11: Admin dashboard~~ (done)
 - F10: Team workspaces
-- F11: Admin dashboard
 - F12: GitHub OAuth
 - F13: JS/TS scanning
 - F14: Stripe integration

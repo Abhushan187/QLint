@@ -91,6 +91,13 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> dict:
     return user
 
 
+async def get_admin_user(user: dict = Depends(get_current_user)) -> dict:
+    """Require a valid token belonging to an account with the admin role."""
+    if user.get("role", "user") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 async def get_optional_user(
     authorization: str | None = Header(default=None),
 ) -> dict | None:

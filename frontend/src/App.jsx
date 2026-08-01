@@ -168,6 +168,7 @@ function Navbar({
   onSignup,
   onLogout,
   onShowHistory,
+  onShowAdmin,
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = () => setSidebarOpen(false);
@@ -212,6 +213,15 @@ function Navbar({
               >
                 My Scans
               </button>
+              {user.role === "admin" && (
+                <button
+                  className="nav-btn"
+                  type="button"
+                  onClick={onShowAdmin}
+                >
+                  Admin
+                </button>
+              )}
               <button className="nav-btn" type="button" onClick={onLogout}>
                 Log out
               </button>
@@ -258,6 +268,18 @@ function Navbar({
             >
               My Scans
             </button>
+            {user.role === "admin" && (
+              <button
+                className="sidebar-item"
+                type="button"
+                onClick={() => {
+                  closeSidebar();
+                  onShowAdmin();
+                }}
+              >
+                Admin
+              </button>
+            )}
             <button
               className="sidebar-item"
               type="button"
@@ -1129,6 +1151,215 @@ function HistoryPanel({ user, scans, loading, error, onClose, onOpen, onDelete }
   );
 }
 
+function StatCard({ label, value }) {
+  return (
+    <div className="admin-stat-card">
+      <div className="admin-stat-label">{label}</div>
+      <div className="admin-stat-value">{value}</div>
+    </div>
+  );
+}
+
+function TopList({ title, rows, emptyText }) {
+  return (
+    <div className="admin-card">
+      <div className="admin-card-title">{title}</div>
+      {rows.length === 0 ? (
+        <div className="admin-list-value">{emptyText}</div>
+      ) : (
+        rows.map((row) => (
+          <div className="admin-list-row" key={row.key}>
+            <span className="admin-list-key" title={row.title ?? row.key}>
+              {row.label}
+            </span>
+            <span className="admin-list-value">{row.count}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function AdminPanel({
+  stats,
+  loading,
+  error,
+  users,
+  usersPage,
+  usersPages,
+  usersTotal,
+  currentUserId,
+  onClose,
+  onPageChange,
+  onDeleteUser,
+}) {
+  const cacheRate =
+    stats && stats.total_scans > 0
+      ? `${Math.round((stats.cached_scans / stats.total_scans) * 100)}%`
+      : "0%";
+
+  const algorithms = stats?.algorithms_most_found ?? [];
+  const maxAlgoCount = algorithms.reduce((max, a) => Math.max(max, a.count), 0);
+
+  return (
+    <div className="admin-overlay">
+      <div className="admin-inner">
+        <div className="admin-header">
+          <div>
+            <div className="admin-title">Admin Dashboard</div>
+            <div className="admin-sub">QLint usage overview</div>
+          </div>
+          <button
+            className="admin-close"
+            type="button"
+            onClick={onClose}
+            aria-label="Close admin dashboard"
+          >
+            X
+          </button>
+        </div>
+
+        {loading && <div className="admin-message">Loading stats...</div>}
+        {!loading && error && <div className="admin-message">{error}</div>}
+
+        {!loading && !error && stats && (
+          <>
+            <div className="admin-stats">
+              <StatCard label="Total Users" value={stats.total_users} />
+              <StatCard label="Total Scans" value={stats.total_scans} />
+              <StatCard label="Scans Today" value={stats.scans_today} />
+              <StatCard label="Scans This Week" value={stats.scans_this_week} />
+              <StatCard label="Cached Results" value={stats.cached_scans} />
+              <StatCard label="Cache Hit Rate" value={cacheRate} />
+            </div>
+
+            <div className="admin-columns">
+              <TopList
+                title="Most Scanned Repositories"
+                emptyText="No scans yet."
+                rows={stats.most_scanned_repos.map((repo) => ({
+                  key: repo.repo_url,
+                  title: repo.repo_url,
+                  label: repoNameFromUrl(repo.repo_url),
+                  count: repo.scan_count,
+                }))}
+              />
+              <TopList
+                title="Most Active Users"
+                emptyText="No users yet."
+                rows={stats.top_users.map((entry) => ({
+                  key: entry.email,
+                  title: entry.email,
+                  label: truncateEmail(entry.email, 28),
+                  count: entry.scan_count,
+                }))}
+              />
+            </div>
+
+            <div className="admin-card admin-chart">
+              <div className="admin-card-title">Most Detected Algorithms</div>
+              {algorithms.length === 0 ? (
+                <div className="admin-list-value">
+                  No algorithms detected yet.
+                </div>
+              ) : (
+                algorithms.map((algo) => (
+                  <div className="admin-bar-row" key={algo.algorithm}>
+                    <span className="admin-bar-label" title={algo.algorithm}>
+                      {algo.algorithm}
+                    </span>
+                    <span className="admin-bar-track">
+                      <span
+                        className={`admin-bar admin-bar-${
+                          algo.severity ?? "info"
+                        }`}
+                        style={{
+                          display: "block",
+                          width: `${
+                            maxAlgoCount > 0
+                              ? (algo.count / maxAlgoCount) * 100
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </span>
+                    <span className="admin-bar-count">{algo.count}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="admin-card admin-table-card">
+              <div className="admin-card-title">All Users ({usersTotal})</div>
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Scans</th>
+                      <th>Joined</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.email}</td>
+                        <td>
+                          <span className={`role-pill role-${row.role}`}>
+                            {row.role}
+                          </span>
+                        </td>
+                        <td>{row.scan_count}</td>
+                        <td>{formatDateTime(row.created_at)}</td>
+                        <td>
+                          {row.id === currentUserId ? (
+                            <span className="admin-self">&mdash;</span>
+                          ) : (
+                            <button
+                              className="admin-delete-btn"
+                              type="button"
+                              onClick={() => onDeleteUser(row)}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="admin-pager">
+                <button
+                  className="admin-pager-btn"
+                  type="button"
+                  disabled={usersPage <= 1}
+                  onClick={() => onPageChange(usersPage - 1)}
+                >
+                  Prev
+                </button>
+                <span className="admin-pager-info">
+                  Page {usersPage} of {Math.max(usersPages, 1)}
+                </span>
+                <button
+                  className="admin-pager-btn"
+                  type="button"
+                  disabled={usersPage >= usersPages}
+                  onClick={() => onPageChange(usersPage + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FooterCTA() {
   const scrollToScan = () => {
     const el = document.getElementById("scan-input");
@@ -1189,6 +1420,15 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState(null);
+
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [adminStats, setAdminStats] = useState(null);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState(null);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminUsersPage, setAdminUsersPage] = useState(1);
+  const [adminUsersPages, setAdminUsersPages] = useState(1);
+  const [adminUsersTotal, setAdminUsersTotal] = useState(0);
 
   const fetchRateLimit = () => {
     fetch(`${API_BASE}/scan/status`)
@@ -1313,6 +1553,10 @@ export default function App() {
     setUser(null);
     setUserScans([]);
     setHistoryError(null);
+    setAdminStats(null);
+    setAdminUsers([]);
+    setAdminError(null);
+    if (showAdmin) setShowAdmin(false);
     if (showHistory) setShowHistory(false);
     if (view === "results") {
       setScanResult(null);
@@ -1372,6 +1616,73 @@ export default function App() {
       });
     } catch {
       // Optimistic removal stands; the next open refetches the real list.
+    }
+  };
+
+  const loadAdminStats = async (token) => {
+    setAdminLoading(true);
+    setAdminError(null);
+    try {
+      const res = await fetch(`${API_BASE}/admin/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 403) throw new Error("forbidden");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setAdminStats(await res.json());
+    } catch (err) {
+      setAdminStats(null);
+      setAdminError(
+        err.message === "forbidden"
+          ? "Admin access required."
+          : "Could not load admin stats."
+      );
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const loadAdminUsers = async (token, page) => {
+    try {
+      const res = await fetch(
+        `${API_BASE}/admin/users?page=${page}&limit=20`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setAdminUsers(data.users || []);
+      setAdminUsersPages(data.pages || 1);
+      setAdminUsersTotal(data.total || 0);
+    } catch {
+      setAdminUsers([]);
+    }
+  };
+
+  useEffect(() => {
+    if (showAdmin && authToken) loadAdminStats(authToken);
+  }, [showAdmin, authToken]);
+
+  useEffect(() => {
+    if (showAdmin && authToken) loadAdminUsers(authToken, adminUsersPage);
+  }, [showAdmin, authToken, adminUsersPage]);
+
+  const deleteAdminUser = async (row) => {
+    if (!authToken) return;
+    const confirmed = window.confirm(
+      `Delete ${row.email} and all their scans? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/users/${row.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setAdminUsers((prev) => prev.filter((u) => u.id !== row.id));
+      setAdminUsersTotal((prev) => Math.max(0, prev - 1));
+      // Deleting an account changes the totals, so refresh the cards.
+      loadAdminStats(authToken);
+    } catch {
+      setAdminError(`Could not delete ${row.email}.`);
     }
   };
 
@@ -1459,6 +1770,10 @@ export default function App() {
         onSignup={() => openAuth("signup")}
         onLogout={handleLogout}
         onShowHistory={() => setShowHistory(true)}
+        onShowAdmin={() => {
+          setAdminUsersPage(1);
+          setShowAdmin(true);
+        }}
       />
       <div className="main-content">
         <main className="main">
@@ -1526,6 +1841,21 @@ export default function App() {
           onClose={() => setShowHistory(false)}
           onOpen={openHistoryScan}
           onDelete={deleteHistoryScan}
+        />
+      )}
+      {showAdmin && (
+        <AdminPanel
+          stats={adminStats}
+          loading={adminLoading}
+          error={adminError}
+          users={adminUsers}
+          usersPage={adminUsersPage}
+          usersPages={adminUsersPages}
+          usersTotal={adminUsersTotal}
+          currentUserId={user?.id}
+          onClose={() => setShowAdmin(false)}
+          onPageChange={setAdminUsersPage}
+          onDeleteUser={deleteAdminUser}
         />
       )}
     </div>
