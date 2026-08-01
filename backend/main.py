@@ -1,24 +1,15 @@
 import os
-import time
 from contextlib import asynccontextmanager
-from typing import Awaitable
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
-from github_client import (
-    GitHubError,
-    InvalidRepoURLError,
-    InvalidTokenError,
-    RepoNotFoundError,
-    check_rate_limit,
-    get_repo_files,
-    parse_repo_url,
-)
-from scanner_engine import scan_repository
+import database
+from routers.auth_router import router as auth_router
+from routers.scan_router import router as scan_router
+from routers.user_router import router as user_router
 
 load_dotenv()
 
@@ -35,89 +26,45 @@ async def lifespan(app: FastAPI):
     app.state.github = httpx.AsyncClient(
         base_url="https://api.github.com", headers=headers, timeout=30.0
     )
+
+    database.connect()
+    # A missing database must not stop the server: anonymous scanning still
+    # works, and the auth/history routes report 503 until Mongo comes back.
+    app.state.db_ready = await database.ping()
+    if app.state.db_ready:
+        await database.create_indexes()
+    else:
+        print(
+            "WARNING: could not reach MongoDB at "
+            f"{database.MONGODB_URI}. Accounts, history, and scan caching "
+            "are disabled until it is running."
+        )
+
     yield
+
     await app.state.github.aclose()
+    await database.close()
 
 
 app = FastAPI(title=SERVICE_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-class ScanRequest(BaseModel):
-    repo_url: str
-
-
-def _require_token() -> str:
-    if not GITHUB_TOKEN:
-        raise HTTPException(
-            status_code=500,
-            detail="GITHUB_TOKEN is not configured. Add it to backend/.env",
-        )
-    return GITHUB_TOKEN
-
-
-async def _github_call(coro: Awaitable):
-    """Await a github_client/scanner_engine coroutine, mapping errors to HTTP."""
-    try:
-        return await coro
-    except HTTPException:
-        raise  # already an HTTP error (e.g. 429 from rate limiting)
-    except InvalidRepoURLError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except InvalidTokenError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-    except RepoNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except GitHubError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"GitHub API request failed: {exc}"
-        ) from exc
+app.include_router(auth_router, tags=["auth"])
+app.include_router(scan_router, tags=["scan"])
+app.include_router(user_router, tags=["user"])
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": SERVICE_NAME}
-
-
-@app.post("/scan/preview")
-async def scan_preview(request: ScanRequest):
-    token = _require_token()
-    client = app.state.github
-    try:
-        owner, repo = parse_repo_url(request.repo_url)
-    except InvalidRepoURLError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    files = await _github_call(get_repo_files(request.repo_url, token, client=client))
-    rate = await _github_call(check_rate_limit(token, client=client))
     return {
-        "repo": f"{owner}/{repo}",
-        "python_files_found": len(files),
-        "files": files,
-        "rate_limit_remaining": rate["remaining"],
+        "status": "ok",
+        "service": SERVICE_NAME,
+        "database": "connected" if await database.ping() else "unavailable",
     }
-
-
-@app.post("/scan")
-async def scan(request: ScanRequest):
-    token = _require_token()
-    start = time.perf_counter()
-    report = await _github_call(
-        scan_repository(request.repo_url, token, app.state.github)
-    )
-    report["scan_duration_seconds"] = round(time.perf_counter() - start, 2)
-    return report
-
-
-@app.get("/scan/status")
-async def scan_status():
-    token = _require_token()
-    return await _github_call(check_rate_limit(token, client=app.state.github))

@@ -11,10 +11,56 @@ const FILTER_TABS = [
   { key: "info", label: "Info" },
 ];
 
+const TOKEN_KEY = "qlint_token";
+
 function repoNameFromUrl(url) {
   const match = url.match(/github\.com\/([^/]+)\/([^/#?]+)/);
   if (!match) return url;
   return `${match[1]}/${match[2].replace(/\.git$/, "")}`;
+}
+
+function truncateEmail(email, max = 20) {
+  if (!email || email.length <= max) return email;
+  return `${email.slice(0, max - 3)}...`;
+}
+
+function relativeTime(iso) {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "recently";
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function formatDateTime(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const day = date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const time = date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${day} at ${time}`;
+}
+
+/** Open the files that hold something worth acting on. */
+function expandedFromResult(data) {
+  const expanded = {};
+  for (const [file, findings] of Object.entries(data.findings_by_file || {})) {
+    expanded[file] = findings.some(
+      (f) => f.severity === "critical" || f.severity === "warning"
+    );
+  }
+  return expanded;
 }
 
 function Logo() {
@@ -96,8 +142,35 @@ function ThemeToggle({ theme, onToggle, extraClass = "" }) {
   );
 }
 
-function Navbar({ theme, onToggleTheme }) {
+function PersonIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#FFFFFF"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+    </svg>
+  );
+}
+
+function Navbar({
+  theme,
+  onToggleTheme,
+  user,
+  onLogin,
+  onSignup,
+  onLogout,
+  onShowHistory,
+}) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = () => setSidebarOpen(false);
   return (
     <header className="navbar">
       <div className="navbar-inner">
@@ -124,12 +197,35 @@ function Navbar({ theme, onToggleTheme }) {
           >
             GitHub
           </a>
-          <button className="nav-btn" type="button">
-            Log in
-          </button>
-          <button className="nav-btn" type="button">
-            Sign up
-          </button>
+          {user ? (
+            <>
+              <span className="nav-user" title={user.email}>
+                <PersonIcon />
+                <span className="nav-user-email">
+                  {truncateEmail(user.email)}
+                </span>
+              </span>
+              <button
+                className="nav-btn"
+                type="button"
+                onClick={onShowHistory}
+              >
+                My Scans
+              </button>
+              <button className="nav-btn" type="button" onClick={onLogout}>
+                Log out
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="nav-btn" type="button" onClick={onLogin}>
+                Log in
+              </button>
+              <button className="nav-btn" type="button" onClick={onSignup}>
+                Sign up
+              </button>
+            </>
+          )}
         </div>
       </div>
       {sidebarOpen && (
@@ -147,12 +243,56 @@ function Navbar({ theme, onToggleTheme }) {
         >
           GitHub
         </a>
-        <button className="sidebar-item" type="button">
-          Log in
-        </button>
-        <button className="sidebar-item" type="button">
-          Sign up
-        </button>
+        {user ? (
+          <>
+            <span className="sidebar-item" title={user.email}>
+              {truncateEmail(user.email)}
+            </span>
+            <button
+              className="sidebar-item"
+              type="button"
+              onClick={() => {
+                closeSidebar();
+                onShowHistory();
+              }}
+            >
+              My Scans
+            </button>
+            <button
+              className="sidebar-item"
+              type="button"
+              onClick={() => {
+                closeSidebar();
+                onLogout();
+              }}
+            >
+              Log out
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              className="sidebar-item"
+              type="button"
+              onClick={() => {
+                closeSidebar();
+                onLogin();
+              }}
+            >
+              Log in
+            </button>
+            <button
+              className="sidebar-item"
+              type="button"
+              onClick={() => {
+                closeSidebar();
+                onSignup();
+              }}
+            >
+              Sign up
+            </button>
+          </>
+        )}
       </nav>
     </header>
   );
@@ -612,6 +752,7 @@ function ResultsView({
   expandedFixes,
   setExpandedFixes,
   onReset,
+  onRescan,
 }) {
   const allFindings = Object.values(result.findings_by_file).flat();
 
@@ -654,6 +795,16 @@ function ResultsView({
       <div className="results-header">
         <div>
           <div className="results-repo">{result.repo}</div>
+          {result.cached && (
+            <div className="cached-row">
+              <span className="cached-pill">
+                Cached result from {relativeTime(result.cached_at)}
+              </span>
+              <button className="rescan-btn" type="button" onClick={onRescan}>
+                Re-scan
+              </button>
+            </div>
+          )}
           <div className="results-meta">
             Scanned {result.scanned_files} files in{" "}
             {result.scan_duration_seconds}s
@@ -791,6 +942,193 @@ function ResultsView({
   );
 }
 
+function AuthModal({ mode, loading, error, onSubmit, onClose, onSwitch }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const isSignup = mode === "signup";
+
+  const submit = () => {
+    if (loading) return;
+    onSubmit(email.trim(), password);
+  };
+
+  return (
+    <div
+      className="modal-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="auth-modal">
+        <button
+          className="auth-close"
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          X
+        </button>
+        <div className="auth-title">
+          {isSignup ? "Create account" : "Welcome back"}
+        </div>
+        <p className="auth-sub">
+          {isSignup
+            ? "Start scanning for quantum vulnerabilities"
+            : "Sign in to your QLint account"}
+        </p>
+
+        <div className="auth-field">
+          <label className="auth-label" htmlFor="auth-email">
+            Email
+          </label>
+          <input
+            id="auth-email"
+            className="auth-input"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+            placeholder="you@example.com"
+          />
+        </div>
+
+        <div className="auth-field">
+          <label className="auth-label" htmlFor="auth-password">
+            Password
+          </label>
+          <input
+            id="auth-password"
+            className="auth-input"
+            type="password"
+            autoComplete={isSignup ? "new-password" : "current-password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+            placeholder="********"
+          />
+          {isSignup && <p className="auth-hint">Minimum 8 characters</p>}
+        </div>
+
+        {error && <div className="auth-error">{error}</div>}
+
+        <button
+          className="auth-submit"
+          type="button"
+          onClick={submit}
+          disabled={loading}
+        >
+          {loading ? "Please wait..." : isSignup ? "Create account" : "Log in"}
+        </button>
+
+        <p className="auth-switch">
+          {isSignup ? "Already have an account? " : "Don't have an account? "}
+          <span className="auth-switch-action" onClick={onSwitch}>
+            {isSignup ? "Log in" : "Sign up"}
+          </span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function HistoryPanel({ user, scans, loading, error, onClose, onOpen, onDelete }) {
+  return (
+    <div className="history-overlay">
+      <div className="history-inner">
+        <div className="history-header">
+          <div>
+            <div className="history-title">Scan History</div>
+            <div className="history-count">
+              {user?.scan_count ?? 0} scans
+            </div>
+          </div>
+          <button
+            className="history-close"
+            type="button"
+            onClick={onClose}
+            aria-label="Close scan history"
+          >
+            X
+          </button>
+        </div>
+
+        {loading && <div className="history-message">Loading scans...</div>}
+        {!loading && error && <div className="history-message">{error}</div>}
+        {!loading && !error && scans.length === 0 && (
+          <div className="history-message">
+            No scans yet. Scan a repository to get started.
+          </div>
+        )}
+
+        {!loading &&
+          !error &&
+          scans.map((scan) => (
+            <div
+              className="history-card"
+              key={scan.id}
+              onClick={() => onOpen(scan)}
+            >
+              <div className="history-card-top">
+                <span className="history-repo">
+                  {repoNameFromUrl(scan.repo_url)}
+                </span>
+                <button
+                  className="history-delete"
+                  type="button"
+                  aria-label="Delete scan"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(scan.id);
+                  }}
+                >
+                  X
+                </button>
+              </div>
+              <div className="history-stats">
+                <span
+                  className={`history-stat ${scoreClass(
+                    scan.pqc_readiness_score
+                  )}`}
+                >
+                  Score: {scan.pqc_readiness_score}/100
+                </span>
+                <span className="history-stat">
+                  {scan.scanned_files} files
+                </span>
+                <span className="history-stat">
+                  {scan.total_findings} findings
+                </span>
+              </div>
+              {scan.algorithms_found.length > 0 && (
+                <div className="history-algos">
+                  {scan.algorithms_found.map((algo) => (
+                    <span
+                      className={`algo-pill pill-${
+                        (scan.algo_severity || {})[algo] ?? "info"
+                      }`}
+                      key={algo}
+                    >
+                      {algo}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="history-date">
+                {formatDateTime(scan.created_at)}
+                {scan.cached ? " (cached)" : ""}
+              </div>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 function FooterCTA() {
   const scrollToScan = () => {
     const el = document.getElementById("scan-input");
@@ -842,6 +1180,16 @@ export default function App() {
   const [expandedFixes, setExpandedFixes] = useState({});
   const [urlError, setUrlError] = useState(null);
 
+  const [user, setUser] = useState(null);
+  const [authToken, setAuthToken] = useState(null);
+  const [authView, setAuthView] = useState("none");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState(null);
+  const [userScans, setUserScans] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+
   const fetchRateLimit = () => {
     fetch(`${API_BASE}/scan/status`)
       .then((res) => {
@@ -864,10 +1212,170 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
+  // Restore a previous session from localStorage, dropping a token the
+  // backend no longer accepts.
+  useEffect(() => {
+    const stored = localStorage.getItem(TOKEN_KEY);
+    if (!stored) return;
+    fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${stored}` },
+    })
+      .then((res) => {
+        if (res.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          return null;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (data) {
+          setUser(data);
+          setAuthToken(stored);
+        }
+      })
+      .catch(() => {
+        // Backend unreachable: keep the token, it may still be valid later.
+      });
+  }, []);
+
   const toggleTheme = () =>
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
 
-  const handleScan = async () => {
+  const openAuth = (mode) => {
+    setAuthError(null);
+    setAuthView(mode);
+  };
+
+  const closeAuth = () => {
+    setAuthError(null);
+    setAuthView("none");
+  };
+
+  const submitAuth = async (mode, email, password) => {
+    setAuthError(null);
+    if (!email || !password) {
+      setAuthError("Email and password are required.");
+      return;
+    }
+    if (mode === "signup" && password.length < 8) {
+      setAuthError("Password must be at least 8 characters.");
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      const path = mode === "signup" ? "/auth/register" : "/auth/login";
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        if (mode === "signup" && res.status === 409) {
+          setAuthError("Email already registered");
+        } else if (mode === "login" && res.status === 401) {
+          setAuthError("Invalid email or password");
+        } else {
+          setAuthError(
+            mode === "signup"
+              ? "Signup failed. Try again."
+              : "Login failed. Try again."
+          );
+        }
+        return;
+      }
+      const data = await res.json();
+      localStorage.setItem(TOKEN_KEY, data.access_token);
+      setAuthToken(data.access_token);
+      setUser(data.user);
+      setAuthView("none");
+    } catch {
+      setAuthError(
+        mode === "signup"
+          ? "Signup failed. Try again."
+          : "Login failed. Try again."
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    if (authToken) {
+      // Stateless JWT: the server has nothing to invalidate, so do not await.
+      fetch(`${API_BASE}/auth/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).catch(() => {});
+    }
+    localStorage.removeItem(TOKEN_KEY);
+    setAuthToken(null);
+    setUser(null);
+    setUserScans([]);
+    setHistoryError(null);
+    if (showHistory) setShowHistory(false);
+    if (view === "results") {
+      setScanResult(null);
+      setView("input");
+    }
+  };
+
+  const loadHistory = async (token) => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const res = await fetch(`${API_BASE}/user/scans?page=1&limit=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setUserScans(data.scans || []);
+    } catch {
+      setHistoryError("Could not load your scan history.");
+      setUserScans([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showHistory && authToken) loadHistory(authToken);
+  }, [showHistory, authToken]);
+
+  const openHistoryScan = async (scan) => {
+    if (!authToken) return;
+    try {
+      const res = await fetch(`${API_BASE}/user/scans/${scan.id}/full`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setRepoUrl(scan.repo_url);
+      setScanResult(data);
+      setExpandedFiles(expandedFromResult(data));
+      setExpandedFixes({});
+      setActiveFilter("all");
+      setView("results");
+      setShowHistory(false);
+    } catch {
+      setHistoryError("Could not open that scan.");
+    }
+  };
+
+  const deleteHistoryScan = async (scanId) => {
+    if (!authToken) return;
+    setUserScans((prev) => prev.filter((s) => s.id !== scanId));
+    try {
+      await fetch(`${API_BASE}/user/scans/${scanId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+    } catch {
+      // Optimistic removal stands; the next open refetches the real list.
+    }
+  };
+
+  const handleScan = async (forceRefresh = false) => {
     setUrlError(null);
     setError(null);
     const trimmed = repoUrl.trim();
@@ -877,20 +1385,22 @@ export default function App() {
     }
     setView("scanning");
     try {
-      const post = (body) =>
-        fetch(`${API_BASE}/scan`, {
+      const post = (body) => {
+        const headers = { "Content-Type": "application/json" };
+        if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        return fetch(`${API_BASE}/scan`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(body),
         });
+      };
 
+      const base = { repo_url: trimmed, force_refresh: forceRefresh };
       let res = await post(
-        githubToken
-          ? { repo_url: trimmed, github_token: githubToken }
-          : { repo_url: trimmed }
+        githubToken ? { ...base, github_token: githubToken } : base
       );
       if (res.status === 422 && githubToken) {
-        res = await post({ repo_url: trimmed });
+        res = await post(base);
       }
 
       const data = await res.json().catch(() => null);
@@ -902,19 +1412,18 @@ export default function App() {
         );
       }
 
-      const expanded = {};
-      for (const [file, findings] of Object.entries(
-        data.findings_by_file || {}
-      )) {
-        expanded[file] = findings.some(
-          (f) => f.severity === "critical" || f.severity === "warning"
-        );
-      }
       setScanResult(data);
-      setExpandedFiles(expanded);
+      setExpandedFiles(expandedFromResult(data));
       setExpandedFixes({});
       setActiveFilter("all");
       setView("results");
+      // The backend only counts scans it actually ran, so mirror that here
+      // instead of refetching /auth/me for a single number.
+      if (user && !data.cached) {
+        setUser((prev) =>
+          prev ? { ...prev, scan_count: prev.scan_count + 1 } : prev
+        );
+      }
       fetchRateLimit();
     } catch (err) {
       const message =
@@ -941,47 +1450,84 @@ export default function App() {
   };
 
   return (
-    <>
-      <Navbar theme={theme} onToggleTheme={toggleTheme} />
-      <main className="main">
-        {view === "input" && (
-          <>
-            <Hero />
-            <ScanInputCard
-              repoUrl={repoUrl}
-              setRepoUrl={setRepoUrl}
-              githubToken={githubToken}
-              setGithubToken={setGithubToken}
-              tokenVisible={tokenVisible}
-              setTokenVisible={setTokenVisible}
-              urlError={urlError}
-              rateLimit={rateLimit}
-              statusFailed={statusFailed}
-              scanning={false}
-              onScan={handleScan}
-              error={error}
-              onClearError={() => setError(null)}
+    <div className="app-wrapper">
+      <Navbar
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        user={user}
+        onLogin={() => openAuth("login")}
+        onSignup={() => openAuth("signup")}
+        onLogout={handleLogout}
+        onShowHistory={() => setShowHistory(true)}
+      />
+      <div className="main-content">
+        <main className="main">
+          {view === "input" && (
+            <>
+              <Hero />
+              <ScanInputCard
+                repoUrl={repoUrl}
+                setRepoUrl={setRepoUrl}
+                githubToken={githubToken}
+                setGithubToken={setGithubToken}
+                tokenVisible={tokenVisible}
+                setTokenVisible={setTokenVisible}
+                urlError={urlError}
+                rateLimit={rateLimit}
+                statusFailed={statusFailed}
+                scanning={false}
+                onScan={() => handleScan(false)}
+                error={error}
+                onClearError={() => setError(null)}
+              />
+              <LanguagesStrip />
+              <Pricing />
+              <FooterCTA />
+            </>
+          )}
+          {view === "scanning" && <ScanningView repoUrl={repoUrl} />}
+          {view === "results" && scanResult && (
+            <ResultsView
+              result={scanResult}
+              activeFilter={activeFilter}
+              setActiveFilter={setActiveFilter}
+              expandedFiles={expandedFiles}
+              setExpandedFiles={setExpandedFiles}
+              expandedFixes={expandedFixes}
+              setExpandedFixes={setExpandedFixes}
+              onReset={handleReset}
+              onRescan={() => handleScan(true)}
             />
-            <LanguagesStrip />
-            <Pricing />
-            <FooterCTA />
-          </>
-        )}
-        {view === "scanning" && <ScanningView repoUrl={repoUrl} />}
-        {view === "results" && scanResult && (
-          <ResultsView
-            result={scanResult}
-            activeFilter={activeFilter}
-            setActiveFilter={setActiveFilter}
-            expandedFiles={expandedFiles}
-            setExpandedFiles={setExpandedFiles}
-            expandedFixes={expandedFixes}
-            setExpandedFixes={setExpandedFixes}
-            onReset={handleReset}
-          />
-        )}
-      </main>
+          )}
+        </main>
+      </div>
       <Footer />
-    </>
+      {authView !== "none" && (
+        <AuthModal
+          mode={authView}
+          loading={authLoading}
+          error={authError}
+          onClose={closeAuth}
+          onSubmit={(email, password) =>
+            submitAuth(authView, email, password)
+          }
+          onSwitch={() => {
+            setAuthError(null);
+            setAuthView(authView === "signup" ? "login" : "signup");
+          }}
+        />
+      )}
+      {showHistory && (
+        <HistoryPanel
+          user={user}
+          scans={userScans}
+          loading={historyLoading}
+          error={historyError}
+          onClose={() => setShowHistory(false)}
+          onOpen={openHistoryScan}
+          onDelete={deleteHistoryScan}
+        />
+      )}
+    </div>
   );
 }

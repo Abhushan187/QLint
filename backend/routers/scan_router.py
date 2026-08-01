@@ -1,0 +1,167 @@
+"""Repository scanning endpoints, backed by a MongoDB result cache."""
+
+import os
+import time
+from datetime import datetime, timedelta, timezone
+from typing import Awaitable
+
+import httpx
+from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from pymongo import DESCENDING
+from pymongo.errors import PyMongoError
+
+from auth import get_optional_user
+from database import get_scans, get_users
+from github_client import (
+    GitHubError,
+    InvalidRepoURLError,
+    InvalidTokenError,
+    RepoNotFoundError,
+    check_rate_limit,
+    get_repo_files,
+    parse_repo_url,
+)
+from scanner_engine import scan_repository
+
+load_dotenv()
+
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+SCAN_CACHE_TTL_HOURS = int(os.getenv("SCAN_CACHE_TTL_HOURS", "24"))
+
+router = APIRouter()
+
+
+class ScanRequest(BaseModel):
+    repo_url: str
+    force_refresh: bool = False
+
+
+def _require_token() -> str:
+    if not GITHUB_TOKEN:
+        raise HTTPException(
+            status_code=500,
+            detail="GITHUB_TOKEN is not configured. Add it to backend/.env",
+        )
+    return GITHUB_TOKEN
+
+
+async def _github_call(coro: Awaitable):
+    """Await a github_client/scanner_engine coroutine, mapping errors to HTTP."""
+    try:
+        return await coro
+    except HTTPException:
+        raise  # already an HTTP error (e.g. 429 from rate limiting)
+    except InvalidRepoURLError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except RepoNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GitHubError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"GitHub API request failed: {exc}"
+        ) from exc
+
+
+def _canonical_url(repo_url: str) -> str:
+    """Normalize a repo URL so cache keys survive .git suffixes and trailing slashes."""
+    try:
+        owner, repo = parse_repo_url(repo_url)
+    except InvalidRepoURLError:
+        return repo_url.strip()
+    return f"https://github.com/{owner}/{repo}"
+
+
+def _iso(value) -> str | None:
+    if isinstance(value, datetime):
+        # Mongo returns naive UTC datetimes; tag them so the client parses correctly.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
+    return value
+
+
+async def _cache_lookup(repo_url: str) -> dict | None:
+    """Newest non-expired cache entry for this repo, or None."""
+    try:
+        return await get_scans().find_one(
+            {"repo_url": repo_url, "expires_at": {"$gt": datetime.now(timezone.utc)}},
+            sort=[("created_at", DESCENDING)],
+        )
+    except PyMongoError:
+        return None  # cache is an optimization, never a hard dependency
+
+
+async def _cache_store(repo_url: str, result: dict, user: dict | None) -> None:
+    now = datetime.now(timezone.utc)
+    entry = {
+        "repo_url": repo_url,
+        "scanned_by": user["email"] if user else "anonymous",
+        "user_id": str(user["_id"]) if user else None,
+        "result": result,
+        "created_at": now,
+        "expires_at": now + timedelta(hours=SCAN_CACHE_TTL_HOURS),
+    }
+    try:
+        await get_scans().insert_one(entry)
+        if user:
+            await get_users().update_one({"_id": user["_id"]}, {"$inc": {"scan_count": 1}})
+    except PyMongoError:
+        pass  # a failed cache write must not fail the scan
+
+
+@router.post("/scan")
+async def scan(
+    request: Request,
+    body: ScanRequest,
+    user: dict | None = Depends(get_optional_user),
+):
+    token = _require_token()
+    repo_url = _canonical_url(body.repo_url)
+
+    if not body.force_refresh:
+        cached = await _cache_lookup(repo_url)
+        if cached:
+            result = dict(cached["result"])
+            result["cached"] = True
+            result["cached_at"] = _iso(cached["created_at"])
+            result["cache_expires_at"] = _iso(cached["expires_at"])
+            return result
+
+    start = time.perf_counter()
+    report = await _github_call(
+        scan_repository(body.repo_url, token, request.app.state.github)
+    )
+    report["scan_duration_seconds"] = round(time.perf_counter() - start, 2)
+    report["cached"] = False
+
+    await _cache_store(repo_url, report, user)
+    return report
+
+
+@router.post("/scan/preview")
+async def scan_preview(request: Request, body: ScanRequest):
+    token = _require_token()
+    client = request.app.state.github
+    try:
+        owner, repo = parse_repo_url(body.repo_url)
+    except InvalidRepoURLError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    files = await _github_call(get_repo_files(body.repo_url, token, client=client))
+    rate = await _github_call(check_rate_limit(token, client=client))
+    return {
+        "repo": f"{owner}/{repo}",
+        "python_files_found": len(files),
+        "files": files,
+        "rate_limit_remaining": rate["remaining"],
+    }
+
+
+@router.get("/scan/status")
+async def scan_status(request: Request):
+    token = _require_token()
+    return await _github_call(check_rate_limit(token, client=request.app.state.github))
