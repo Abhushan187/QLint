@@ -12,6 +12,8 @@ from github_client import (
     InvalidRepoURLError,
     check_rate_limit,
     get_file_content,
+    get_repo_files,
+    language_for_path,
     parse_repo_url,
 )
 
@@ -40,6 +42,60 @@ class TestParseRepoUrl:
     def test_non_github_host_raises(self):
         with pytest.raises(InvalidRepoURLError):
             parse_repo_url("https://gitlab.com/owner/repo")
+
+
+class TestLanguageForPath:
+    @pytest.mark.parametrize(
+        "path,language",
+        [
+            ("server.py", "python"),
+            ("src/auth.js", "javascript"),
+            ("src/auth.jsx", "javascript"),
+            ("src/auth.ts", "typescript"),
+            ("src/Component.tsx", "typescript"),
+            ("types/index.d.ts", "typescript"),
+            ("SRC/AUTH.JS", "javascript"),
+        ],
+    )
+    def test_supported_extensions(self, path, language):
+        assert language_for_path(path) == language
+
+    @pytest.mark.parametrize(
+        "path",
+        ["README.md", "go.mod", "main.go", "style.css", "noextension", "archive.pyc"],
+    )
+    def test_unsupported_extensions_return_none(self, path):
+        assert language_for_path(path) is None
+
+
+class TestGetRepoFiles:
+    def test_returns_tagged_source_files_and_skips_everything_else(self):
+        tree = {
+            "tree": [
+                {"type": "blob", "path": "server.py"},
+                {"type": "blob", "path": "src/auth.js"},
+                {"type": "blob", "path": "src/Component.tsx"},
+                {"type": "blob", "path": "README.md"},
+                {"type": "blob", "path": "main.go"},
+                {"type": "tree", "path": "src"},
+            ]
+        }
+
+        def handler(request):
+            return httpx.Response(200, json=tree)
+
+        async def run():
+            async with make_client(handler) as client:
+                return await get_repo_files(
+                    "https://github.com/acme/demo", "token", client=client
+                )
+
+        files = asyncio.run(run())
+        assert files == [
+            {"path": "server.py", "language": "python"},
+            {"path": "src/auth.js", "language": "javascript"},
+            {"path": "src/Component.tsx", "language": "typescript"},
+        ]
 
 
 class TestGetFileContent:

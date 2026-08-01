@@ -169,7 +169,10 @@ async def scan_preview(request: Request, body: ScanRequest):
     rate = await _github_call(check_rate_limit(token, client=client))
     return {
         "repo": f"{owner}/{repo}",
-        "python_files_found": len(files),
+        "files_found": len(files),
+        # Kept so anything built against the pre-F13 shape keeps working.
+        "python_files_found": sum(1 for f in files if f["language"] == "python"),
+        "languages": sorted({f["language"] for f in files}),
         "files": files,
         "rate_limit_remaining": rate["remaining"],
     }

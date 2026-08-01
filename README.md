@@ -4,7 +4,7 @@ Scan GitHub repositories for quantum-vulnerable cryptographic algorithms and get
 
 ## What it does
 
-QLint scans the Python code in any public GitHub repository and detects cryptographic algorithms that will be broken (RSA, ECC, DSA, Diffie-Hellman) or weakened (AES-128, SHA-256) by quantum computers. Detection is AST-based — it parses real syntax trees instead of grepping text, so algorithm names in comments or strings never produce false positives. Every finding comes with a severity rating, the quantum attack vector, and a ready-to-use fix snippet showing the migration to the NIST-standardized post-quantum replacement (ML-KEM, ML-DSA, SLH-DSA). The whole repository is summarized into a PQC readiness score from 0 to 100.
+QLint scans the Python, JavaScript, and TypeScript code in any public GitHub repository and detects cryptographic algorithms that will be broken (RSA, ECC, DSA, Diffie-Hellman) or weakened (AES-128, SHA-256) by quantum computers. Python detection is AST-based — it parses real syntax trees instead of grepping text, so algorithm names in comments or strings never produce false positives. JavaScript and TypeScript have no stdlib parser to lean on, so they are scanned with context-aware patterns that strip comments and string noise before matching. Every finding comes with a severity rating, the quantum attack vector, and a ready-to-use fix snippet showing the migration to the NIST-standardized post-quantum replacement (ML-KEM, ML-DSA, SLH-DSA). The whole repository is summarized into a PQC readiness score from 0 to 100.
 
 ## Tech Stack
 
@@ -12,7 +12,7 @@ QLint scans the Python code in any public GitHub repository and detects cryptogr
 - **Database:** MongoDB (Motor async driver)
 - **Auth:** JWT (python-jose) + bcrypt password hashing (passlib)
 - **Frontend:** React 18, Vite
-- **Scanner:** Python `ast` module (zero false positives from comments)
+- **Scanners:** Python `ast` module; context-aware pattern matching for JS/TS
 - **Standards:** NIST FIPS 203, 204, 205 (2024)
 
 ## Project Structure
@@ -33,6 +33,7 @@ QLint/
 │   ├── github_client.py
 │   ├── vulnerability_db.py
 │   ├── ast_scanner.py
+│   ├── js_scanner.py
 │   ├── scanner_engine.py
 │   ├── requirements.txt
 │   ├── pytest.ini
@@ -41,6 +42,7 @@ QLint/
 │       ├── conftest.py
 │       ├── test_vulnerability_db.py
 │       ├── test_ast_scanner.py
+│       ├── test_js_scanner.py
 │       ├── test_github_client.py
 │       ├── test_scanner_engine.py
 │       ├── test_auth.py
@@ -174,7 +176,7 @@ Expected: all tests pass.
 | ------ | --------------- | ------------------------ | ---------------------------------------------------------- |
 | GET    | `/health`       | Health check             | Returns `{"status": "ok", "service": "PQC Migration Scanner"}` |
 | GET    | `/scan/status`  | GitHub rate limit        | Returns remaining requests + reset time                    |
-| POST   | `/scan/preview` | List repo Python files   | Body: `{"repo_url": "https://github.com/owner/repo"}`      |
+| POST   | `/scan/preview` | List scannable source files | Body: `{"repo_url": "https://github.com/owner/repo"}`   |
 | POST   | `/scan`         | Full vulnerability scan  | Body: `{"repo_url": "https://github.com/owner/repo", "force_refresh": false}` |
 
 Authentication is **optional** on `/scan`. Anonymous scans work as before; send
@@ -255,13 +257,33 @@ share one entry.
 
 ## Supported Languages
 
-| Language   | Status      | Scanner                            |
-| ---------- | ----------- | ---------------------------------- |
-| Python     | Available   | AST-based (zero false positives)   |
-| JavaScript | Coming Soon | —                                  |
-| TypeScript | Coming Soon | —                                  |
-| Java       | Coming Soon | —                                  |
-| Go         | Coming Soon | —                                  |
+| Language   | Status      | Extensions       | Scanner                            |
+| ---------- | ----------- | ---------------- | ---------------------------------- |
+| Python     | Available   | `.py`            | AST-based (zero false positives)   |
+| JavaScript | Available   | `.js`, `.jsx`    | Context-aware pattern matching     |
+| TypeScript | Available   | `.ts`, `.tsx`    | Context-aware pattern matching     |
+| Java       | Coming Soon | —                | —                                  |
+| Go         | Coming Soon | —                | —                                  |
+| Rust       | Coming Soon | —                | —                                  |
+
+A scan report lists every language it touched under `languages_scanned`, and
+each finding carries a `language` field.
+
+### JavaScript / TypeScript detection
+
+`js_scanner.py` covers Node `crypto` (createSign/createVerify, createHash,
+createCipheriv, createECDH, createDiffieHellman), node-forge, the Web Crypto
+`{ name: ... }` algorithm objects, JOSE/JWT algorithm identifiers
+(RS/PS/ES/HS/EdDSA), and common libraries (NodeRSA, jsrsasign, elliptic,
+@noble). Before any pattern runs, a scanner pass blanks out `//` comments,
+`/* */` blocks, and template literals while preserving byte offsets, so a
+`// TODO: replace RSA` note never becomes a finding and a URL inside a string
+is never mistaken for a comment.
+
+**Note on Ed25519:** QLint classifies Ed25519 and EdDSA as **critical**. Ed25519
+is EdDSA over Curve25519 — an elliptic-curve scheme — so Shor's Algorithm breaks
+it just as it breaks ECDSA, despite Ed25519 being strong against classical
+attacks.
 
 ## Roadmap
 

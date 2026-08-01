@@ -15,12 +15,32 @@ from github_client import (
     check_rate_limit,
     get_file_content,
     get_repo_files,
+    language_for_path,
     parse_repo_url,
 )
+from js_scanner import scan_js_source
 from vulnerability_db import get_severity_score
 
 MAX_CONCURRENT_FETCHES = 10
 MIN_RATE_LIMIT = 100
+
+SCANNERS = {
+    "python": scan_python_source,
+    "javascript": scan_js_source,
+    "typescript": scan_js_source,
+}
+
+
+def _normalize_file(entry: dict | str) -> dict[str, str]:
+    """Accept either {"path", "language"} or a bare path string."""
+    if isinstance(entry, str):
+        return {"path": entry, "language": language_for_path(entry) or "python"}
+    return {
+        "path": entry["path"],
+        "language": entry.get("language")
+        or language_for_path(entry["path"])
+        or "python",
+    }
 
 
 async def scan_repository(
@@ -44,35 +64,43 @@ async def scan_repository(
             ),
         )
 
-    file_paths = await get_repo_files(repo_url, token, client=client)
+    repo_files = [
+        _normalize_file(entry)
+        for entry in await get_repo_files(repo_url, token, client=client)
+    ]
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_FETCHES)
 
-    async def fetch(path: str) -> tuple[str, str | None]:
+    async def fetch(file: dict[str, str]) -> tuple[dict[str, str], str | None]:
         async with semaphore:
             try:
                 content = await get_file_content(
-                    owner, repo, path, token, client=client
+                    owner, repo, file["path"], token, client=client
                 )
             except (GitHubError, httpx.HTTPError):
                 content = None  # skip this file, keep the scan alive
-            return path, content
+            return file, content
 
-    results = await asyncio.gather(*(fetch(path) for path in file_paths))
+    results = await asyncio.gather(*(fetch(file) for file in repo_files))
 
     skipped_files: list[str] = []
     findings_by_file: dict[str, list[dict]] = {}
     all_findings: list[dict] = []
+    languages_scanned: list[str] = []
     scanned_files = 0
 
-    for path, content in results:
+    for file, content in results:
+        path, language = file["path"], file["language"]
         if content is None:
             skipped_files.append(path)
             continue
         scanned_files += 1
+        if language not in languages_scanned:
+            languages_scanned.append(language)
+        scanner = SCANNERS.get(language, scan_python_source)
         file_findings = [
-            {"file": path, **finding}
-            for finding in scan_python_source(content, filename=path)
+            {"file": path, "language": language, **finding}
+            for finding in scanner(content, filename=path)
         ]
         if file_findings:
             findings_by_file[path] = file_findings
@@ -101,5 +129,6 @@ async def scan_repository(
         "severity_summary": severity_summary,
         "findings_by_file": findings_by_file,
         "algorithms_found": algorithms_found,
+        "languages_scanned": sorted(languages_scanned),
         "rate_limit_remaining": final_rate["remaining"],
     }

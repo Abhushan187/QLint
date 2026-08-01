@@ -535,16 +535,19 @@ function ScanInputCard({
 }
 
 function LanguagesStrip() {
-  const comingSoon = ["JavaScript", "TypeScript", "Java", "Go", "Rust"];
+  const active = ["Python", "JavaScript", "TypeScript"];
+  const comingSoon = ["Java", "Go", "Rust"];
   return (
     <section className="langs">
       <div className="langs-inner">
         <div className="langs-label">Supported Languages</div>
         <div className="langs-row">
-          <span className="lang-pill lang-active">
-            Python
-            <span className="lang-tag tag-active">Active</span>
-          </span>
+          {active.map((name) => (
+            <span className="lang-pill lang-active" key={name}>
+              {name}
+              <span className="lang-tag tag-active">Active</span>
+            </span>
+          ))}
           {comingSoon.map((name) => (
             <span className="lang-pill lang-soon" key={name}>
               {name}
@@ -553,8 +556,8 @@ function LanguagesStrip() {
           ))}
         </div>
         <p className="langs-desc">
-          More languages are in active development. Python scanning is
-          available now.
+          More languages are in active development. Python, JavaScript, and
+          TypeScript scanning are available now.
         </p>
       </div>
     </section>

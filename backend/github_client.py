@@ -26,6 +26,27 @@ class InvalidTokenError(GitHubError):
     """The GitHub token is invalid or expired."""
 
 
+# Source extensions QLint can scan, mapped to the language whose scanner
+# handles them. Order matters: ".tsx" must be tested before ".ts" would be,
+# which sorting by length descending guarantees.
+EXTENSION_LANGUAGES: dict[str, str] = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+}
+
+
+def language_for_path(path: str) -> str | None:
+    """Return the scanner language for a file path, or None if unsupported."""
+    lowered = path.lower()
+    for extension in sorted(EXTENSION_LANGUAGES, key=len, reverse=True):
+        if lowered.endswith(extension):
+            return EXTENSION_LANGUAGES[extension]
+    return None
+
+
 _REPO_URL_RE = re.compile(
     r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$"
 )
@@ -61,10 +82,12 @@ def _raise_for_common_errors(response: httpx.Response) -> None:
 
 async def get_repo_files(
     repo_url: str, token: str, client: httpx.AsyncClient | None = None
-) -> list[str]:
-    """Return all .py file paths in the repo, trying the main branch then master.
+) -> list[dict[str, str]]:
+    """Return every scannable source file in the repo, tagged with its language.
 
-    Uses the provided shared client when given; otherwise opens a temporary one.
+    Each entry is {"path": ..., "language": ...}. Tries the main branch, then
+    master. Uses the provided shared client when given; otherwise opens a
+    temporary one.
     """
     owner, repo = parse_repo_url(repo_url)
     own_client = client is None
@@ -82,11 +105,14 @@ async def get_repo_files(
             _raise_for_common_errors(response)
             response.raise_for_status()
             tree = response.json().get("tree", [])
-            return [
-                entry["path"]
-                for entry in tree
-                if entry.get("type") == "blob" and entry["path"].endswith(".py")
-            ]
+            files: list[dict[str, str]] = []
+            for entry in tree:
+                if entry.get("type") != "blob":
+                    continue
+                language = language_for_path(entry["path"])
+                if language is not None:
+                    files.append({"path": entry["path"], "language": language})
+            return files
         raise RepoNotFoundError(
             f"Repository {owner}/{repo} not found, is private, "
             "or has neither a 'main' nor a 'master' branch"
