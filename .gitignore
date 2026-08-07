@@ -1,2 +1,18 @@
+# Python
+.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets — never commit
+backend/.env
+
+# Frontend
 frontend/node_modules/
 frontend/dist/
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store

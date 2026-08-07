@@ -55,6 +55,7 @@ class TestLanguageForPath:
             ("src/Component.tsx", "typescript"),
             ("types/index.d.ts", "typescript"),
             ("SRC/AUTH.JS", "javascript"),
+            ("cmd/main.go", "go"),
         ],
     )
     def test_supported_extensions(self, path, language):
@@ -62,7 +63,7 @@ class TestLanguageForPath:
 
     @pytest.mark.parametrize(
         "path",
-        ["README.md", "go.mod", "main.go", "style.css", "noextension", "archive.pyc"],
+        ["README.md", "go.mod", "style.css", "noextension", "archive.pyc"],
     )
     def test_unsupported_extensions_return_none(self, path):
         assert language_for_path(path) is None
@@ -75,8 +76,9 @@ class TestGetRepoFiles:
                 {"type": "blob", "path": "server.py"},
                 {"type": "blob", "path": "src/auth.js"},
                 {"type": "blob", "path": "src/Component.tsx"},
-                {"type": "blob", "path": "README.md"},
                 {"type": "blob", "path": "main.go"},
+                {"type": "blob", "path": "README.md"},
+                {"type": "blob", "path": "go.mod"},
                 {"type": "tree", "path": "src"},
             ]
         }
@@ -95,6 +97,7 @@ class TestGetRepoFiles:
             {"path": "server.py", "language": "python"},
             {"path": "src/auth.js", "language": "javascript"},
             {"path": "src/Component.tsx", "language": "typescript"},
+            {"path": "main.go", "language": "go"},
         ]
 
 

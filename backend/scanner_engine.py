@@ -18,6 +18,7 @@ from github_client import (
     language_for_path,
     parse_repo_url,
 )
+from go_scanner import scan_go_source
 from js_scanner import scan_js_source
 from vulnerability_db import get_severity_score
 
@@ -28,6 +29,7 @@ SCANNERS = {
     "python": scan_python_source,
     "javascript": scan_js_source,
     "typescript": scan_js_source,
+    "go": scan_go_source,
 }
 
 

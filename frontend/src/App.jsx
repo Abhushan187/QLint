@@ -535,8 +535,8 @@ function ScanInputCard({
 }
 
 function LanguagesStrip() {
-  const active = ["Python", "JavaScript", "TypeScript"];
-  const comingSoon = ["Java", "Go", "Rust"];
+  const active = ["Python", "JavaScript", "TypeScript", "Go"];
+  const comingSoon = ["Java", "Rust"];
   return (
     <section className="langs">
       <div className="langs-inner">
@@ -556,8 +556,8 @@ function LanguagesStrip() {
           ))}
         </div>
         <p className="langs-desc">
-          More languages are in active development. Python, JavaScript, and
-          TypeScript scanning are available now.
+          More languages are in active development. Python, JavaScript,
+          TypeScript, and Go scanning are available now.
         </p>
       </div>
     </section>

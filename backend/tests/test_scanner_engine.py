@@ -104,6 +104,18 @@ class TestScanRepository:
         assert "MD5" in report["algorithms_found"]
         assert report["languages_scanned"] == ["typescript"]
 
+    def test_go_file_is_scanned_with_the_go_scanner(
+        self, monkeypatch, mock_rate_limit_response
+    ):
+        contents = {"cmd/keys.go": "priv, _ := rsa.GenerateKey(rand.Reader, 2048)\n"}
+        report = run_scan(monkeypatch, contents, mock_rate_limit_response)
+        assert "RSA" in report["algorithms_found"]
+        assert report["languages_scanned"] == ["go"]
+        finding = report["findings_by_file"]["cmd/keys.go"][0]
+        assert finding["language"] == "go"
+        # The Go fix snippet, not the Python one, reaches the report.
+        assert "mlkem768" in finding["fix_snippet"]
+
     def test_mixed_language_repo_reports_every_language(
         self, monkeypatch, sample_rsa_source, mock_rate_limit_response
     ):
