@@ -845,6 +845,230 @@ function FindingRow({ finding, fixKey, fixExpanded, onToggleFix }) {
   );
 }
 
+function HndlCalculator({ scanId, authToken }) {
+  const [open, setOpen] = useState(false);
+  const [profiles, setProfiles] = useState(null);
+  const [sensitivity, setSensitivity] = useState("personal_data");
+  const [scenario, setScenario] = useState("moderate");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [risk, setRisk] = useState(null);
+
+  const available = !!scanId && !!authToken;
+
+  // Options are fetched from the backend rather than mirrored here, so the
+  // shelf-life and CRQC numbers only ever live in hndl_calculator.py.
+  useEffect(() => {
+    if (!open || profiles) return;
+    fetch(`${API_BASE}/hndl/profiles`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(setProfiles)
+      .catch(() => setError("Could not load calculator options."));
+  }, [open, profiles]);
+
+  const calculate = async () => {
+    if (!available) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/hndl/calculate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          scan_id: scanId,
+          data_sensitivity: sensitivity,
+          crqc_scenario: scenario,
+        }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.detail || `HTTP ${res.status}`);
+      setRisk(body);
+    } catch (err) {
+      setRisk(null);
+      setError(err.message || "Could not calculate HNDL risk.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sensitivityOptions = Object.entries(
+    profiles?.data_sensitivity_profiles || {}
+  );
+  const scenarioOptions = Object.entries(profiles?.crqc_scenarios || {});
+
+  return (
+    <div className="file-section hndl-section">
+      <div
+        className={`file-header${open ? " file-header-open" : ""}`}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <span className="hndl-title">HNDL Risk Calculator</span>
+        <span className="file-header-right">
+          <span className="file-badge">Harvest Now, Decrypt Later</span>
+          <span className={`chevron${open ? " chevron-open" : ""}`}>v</span>
+        </span>
+      </div>
+      {open && (
+        <div className="file-body hndl-body">
+          <p className="hndl-intro">
+            An adversary can record encrypted traffic today and decrypt it once
+            a cryptographically relevant quantum computer (CRQC) exists. Whether
+            that matters here depends on how long your data stays valuable,
+            when a CRQC arrives, and how long this codebase takes to migrate.
+          </p>
+
+          {!available ? (
+            <div className="hndl-note">
+              This calculator runs against a saved scan. Sign in before scanning,
+              or open a scan from My Scans, and it will score that result.
+            </div>
+          ) : (
+            <>
+              <div className="hndl-controls">
+                <label className="hndl-field">
+                  <span className="hndl-label">Data Sensitivity</span>
+                  <select
+                    className="hndl-select"
+                    value={sensitivity}
+                    onChange={(e) => setSensitivity(e.target.value)}
+                    disabled={!profiles}
+                  >
+                    {sensitivityOptions.map(([key, profile]) => (
+                      <option value={key} key={key}>
+                        {profile.label} ({profile.shelf_life_years} yr shelf life)
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="hndl-field">
+                  <span className="hndl-label">CRQC Timeline Scenario</span>
+                  <select
+                    className="hndl-select"
+                    value={scenario}
+                    onChange={(e) => setScenario(e.target.value)}
+                    disabled={!profiles}
+                  >
+                    {scenarioOptions.map(([key, option]) => (
+                      <option value={key} key={key}>
+                        {option.label} ({option.years_from_now} yr)
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="btn-primary btn-small hndl-btn"
+                  type="button"
+                  onClick={calculate}
+                  disabled={loading || !profiles}
+                >
+                  {loading ? "Calculating..." : "Calculate Risk"}
+                </button>
+              </div>
+
+              {error && <div className="hndl-error">{error}</div>}
+
+              {risk && (
+                <div className="hndl-result">
+                  <div
+                    className={`hndl-verdict ${
+                      risk.exposed ? "hndl-exposed" : "hndl-clear"
+                    }`}
+                  >
+                    <div className="hndl-verdict-main">
+                      <span className="hndl-status">
+                        {risk.exposed ? "Exposed" : "Not Exposed"}
+                      </span>
+                      <span className="hndl-status-sub">
+                        {risk.data_sensitivity_label}
+                      </span>
+                    </div>
+                    <div className="hndl-metrics">
+                      <div className="hndl-metric">
+                        <span className="hndl-metric-value">
+                          {risk.risk_window_years}
+                        </span>
+                        <span className="hndl-metric-label">
+                          risk window (yr)
+                        </span>
+                      </div>
+                      <div className="hndl-metric">
+                        <span className="hndl-metric-value">
+                          {risk.shelf_life_years}
+                        </span>
+                        <span className="hndl-metric-label">
+                          data shelf life (yr)
+                        </span>
+                      </div>
+                      <div className="hndl-metric">
+                        <span className="hndl-metric-value">
+                          {risk.migration_time_years}
+                        </span>
+                        <span className="hndl-metric-label">
+                          est. migration (yr)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="hndl-prose">
+                    <div className="hndl-prose-label">Verdict</div>
+                    <p>{risk.verdict}</p>
+                  </div>
+                  <div className="hndl-prose">
+                    <div className="hndl-prose-label">Recommendation</div>
+                    <p>{risk.recommendation}</p>
+                  </div>
+
+                  <div className="hndl-prose-label">
+                    How much the verdict rests on the CRQC estimate
+                  </div>
+                  <table className="hndl-table">
+                    <thead>
+                      <tr>
+                        <th>CRQC scenario</th>
+                        <th>Risk window</th>
+                        <th>Exposed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {risk.all_scenarios.map((row) => (
+                        <tr
+                          key={row.scenario}
+                          className={
+                            row.scenario === risk.crqc_scenario
+                              ? "hndl-row-active"
+                              : undefined
+                          }
+                        >
+                          <td>{row.label || row.scenario}</td>
+                          <td>{row.risk_window_years} yr</td>
+                          <td
+                            className={
+                              row.exposed ? "hndl-yes" : "hndl-no"
+                            }
+                          >
+                            {row.exposed ? "Yes" : "No"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ResultsView({
   result,
   activeFilter,
@@ -855,6 +1079,7 @@ function ResultsView({
   setExpandedFixes,
   onReset,
   onRescan,
+  authToken,
 }) {
   const allFindings = Object.values(result.findings_by_file).flat();
 
@@ -963,6 +1188,8 @@ function ResultsView({
           </div>
         </>
       )}
+
+      <HndlCalculator scanId={result.scan_id} authToken={authToken} />
 
       {result.total_findings === 0 ? (
         <div className="empty-state">
@@ -1978,6 +2205,7 @@ export default function App() {
               setExpandedFixes={setExpandedFixes}
               onReset={handleReset}
               onRescan={() => handleScan(true)}
+              authToken={authToken}
             />
           )}
         </main>

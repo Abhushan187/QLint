@@ -110,7 +110,8 @@ async def _cache_lookup(repo_url: str) -> dict | None:
         return None  # cache is an optimization, never a hard dependency
 
 
-async def _cache_store(repo_url: str, result: dict, user: dict | None) -> None:
+async def _cache_store(repo_url: str, result: dict, user: dict | None) -> str | None:
+    """Store the scan and return its id, or None if the write did not happen."""
     now = datetime.now(timezone.utc)
     entry = {
         "repo_url": repo_url,
@@ -121,11 +122,12 @@ async def _cache_store(repo_url: str, result: dict, user: dict | None) -> None:
         "expires_at": now + timedelta(hours=SCAN_CACHE_TTL_HOURS),
     }
     try:
-        await get_scans().insert_one(entry)
+        inserted = await get_scans().insert_one(entry)
         if user:
             await get_users().update_one({"_id": user["_id"]}, {"$inc": {"scan_count": 1}})
+        return str(inserted.inserted_id)
     except PyMongoError:
-        pass  # a failed cache write must not fail the scan
+        return None  # a failed cache write must not fail the scan
 
 
 @router.post("/scan")
@@ -144,6 +146,11 @@ async def scan(
             result["cached"] = True
             result["cached_at"] = _iso(cached["created_at"])
             result["cache_expires_at"] = _iso(cached["expires_at"])
+            # The cache is shared across users, so only hand back the scan id
+            # when this user owns the entry — /hndl/calculate and the history
+            # routes will not resolve someone else's id anyway.
+            if user and cached.get("user_id") == str(user["_id"]):
+                result["scan_id"] = str(cached["_id"])
             return result
 
     start = time.perf_counter()
@@ -153,7 +160,11 @@ async def scan(
     report["scan_duration_seconds"] = round(time.perf_counter() - start, 2)
     report["cached"] = False
 
-    await _cache_store(repo_url, report, user)
+    scan_id = await _cache_store(repo_url, report, user)
+    # Anonymous scans are stored without an owner, so their id resolves for
+    # nobody; leave it off rather than handing out one that always 404s.
+    if scan_id and user:
+        report["scan_id"] = scan_id
     return report
 
 

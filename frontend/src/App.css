@@ -2642,3 +2642,250 @@ input {
     display: none;
   }
 }
+
+/* ------------------------------------------------------------------ HNDL
+   Harvest Now, Decrypt Later calculator. The collapsible shell reuses
+   .file-section / .file-header / .file-body so it inherits their light and
+   dark styling; only the inner content needs its own rules. */
+
+.hndl-section {
+  margin-top: 24px;
+}
+
+.hndl-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hndl-body {
+  padding: 20px;
+}
+
+.hndl-intro {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.hndl-note {
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.hndl-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.hndl-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+.hndl-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.hndl-select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.hndl-select:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.hndl-btn {
+  flex: 0 0 auto;
+  height: 37px;
+}
+
+.hndl-error {
+  margin-top: 14px;
+  background: var(--critical-bg);
+  border: 1px solid var(--critical-border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--critical);
+}
+
+.hndl-result {
+  margin-top: 20px;
+}
+
+.hndl-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  border: 1px solid;
+}
+
+.hndl-exposed {
+  background: var(--critical-bg);
+  border-color: var(--critical-border);
+}
+
+.hndl-clear {
+  background: var(--safe-bg);
+  border-color: var(--safe-border);
+}
+
+.hndl-verdict-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hndl-status {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.hndl-exposed .hndl-status {
+  color: var(--critical);
+}
+
+.hndl-clear .hndl-status {
+  color: var(--safe);
+}
+
+.hndl-status-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.hndl-metrics {
+  display: flex;
+  gap: 26px;
+}
+
+.hndl-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.hndl-metric-value {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hndl-metric-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.hndl-prose {
+  margin-top: 18px;
+}
+
+.hndl-prose p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+.hndl-prose-label {
+  margin-top: 18px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.hndl-prose .hndl-prose-label {
+  margin-top: 0;
+}
+
+.hndl-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.hndl-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hndl-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.hndl-table tr:last-child td {
+  border-bottom: none;
+}
+
+.hndl-row-active td {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.hndl-yes {
+  color: var(--critical);
+  font-weight: 600;
+}
+
+.hndl-no {
+  color: var(--safe);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .hndl-verdict {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hndl-metrics {
+    gap: 18px;
+  }
+
+  .hndl-metric {
+    align-items: flex-start;
+  }
+}
