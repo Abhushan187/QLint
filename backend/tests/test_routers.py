@@ -238,3 +238,111 @@ def test_calculate_400s_on_an_invalid_crqc_scenario(signed_in):
     )
     assert response.status_code == 400
     assert "tomorrow" in response.json()["detail"]
+
+
+# --------------------------------------------------------- benchmark router
+
+# benchmark_router imports cleanly with or without liboqs (it guards the
+# import and answers 503 instead), so these run on the native Windows venv too.
+from fastapi import HTTPException
+
+from routers import benchmark_router as benchmark_module
+from routers.benchmark_router import router as benchmark_router
+
+
+@pytest.fixture
+def benchmark_client():
+    app = FastAPI()
+    app.include_router(benchmark_router)
+    return TestClient(app)
+
+
+@pytest.mark.parametrize(
+    "value,allowed,parameter",
+    [
+        ("ML-KEM-999", benchmark_module.KEM_ALGORITHMS, "kem_algorithm"),
+        ("Kyber768", benchmark_module.KEM_ALGORITHMS, "kem_algorithm"),
+        ("Dilithium3", benchmark_module.SIG_ALGORITHMS, "sig_algorithm"),
+        ("", benchmark_module.SIG_ALGORITHMS, "sig_algorithm"),
+    ],
+)
+def test_validate_400s_and_lists_the_valid_options(value, allowed, parameter):
+    with pytest.raises(HTTPException) as exc:
+        benchmark_module._validate(value, allowed, parameter)
+    assert exc.value.status_code == 400
+    detail = exc.value.detail
+    assert parameter in detail
+    for option in allowed:
+        assert option in detail
+
+
+@pytest.mark.parametrize(
+    "value,allowed",
+    [
+        ("ML-KEM-512", benchmark_module.KEM_ALGORITHMS),
+        ("ML-KEM-1024", benchmark_module.KEM_ALGORITHMS),
+        ("ML-DSA-87", benchmark_module.SIG_ALGORITHMS),
+    ],
+)
+def test_validate_passes_every_offered_level_through(value, allowed):
+    assert benchmark_module._validate(value, allowed, "kem_algorithm") == value
+
+
+def test_the_defaults_are_themselves_valid_choices():
+    # A default outside its own allow-list would 400 every unparameterized call.
+    assert benchmark_module.DEFAULT_KEM_ALGORITHM in benchmark_module.KEM_ALGORITHMS
+    assert benchmark_module.DEFAULT_SIG_ALGORITHM in benchmark_module.SIG_ALGORITHMS
+
+
+@pytest.mark.skipif(
+    not benchmark_module.BENCHMARK_AVAILABLE,
+    reason="liboqs is not available in this environment; run from WSL",
+)
+def test_run_rejects_an_unknown_algorithm_before_measuring_anything(
+    benchmark_client,
+):
+    response = benchmark_client.get(
+        "/benchmark/run", params={"iterations": 1, "kem_algorithm": "ML-KEM-999"}
+    )
+    assert response.status_code == 400
+    assert "ML-KEM-768" in response.json()["detail"]
+
+
+@pytest.mark.skipif(
+    not benchmark_module.BENCHMARK_AVAILABLE,
+    reason="liboqs is not available in this environment; run from WSL",
+)
+def test_run_measures_the_requested_levels_not_the_defaults(benchmark_client):
+    response = benchmark_client.get(
+        "/benchmark/run",
+        params={
+            "iterations": 1,
+            "kem_algorithm": "ML-KEM-1024",
+            "sig_algorithm": "ML-DSA-87",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert [r["algorithm"] for r in body["kem_results"]] == ["ML-KEM-1024"]
+    # The sizes, not just the labels: this is what proves a different algorithm
+    # actually ran rather than the default run being relabeled.
+    assert body["kem_results"][0]["public_key_bytes"] == 1568
+    assert body["sig_results"][0]["algorithm"] == "ML-DSA-87"
+    assert body["sig_results"][0]["signature_bytes"] == 4627
+    # The classical baseline is fixed and comes along unchanged.
+    assert [r["algorithm"] for r in body["sig_results"][1:]] == [
+        "RSA-2048",
+        "ECDSA-P256",
+    ]
+
+
+@pytest.mark.skipif(
+    not benchmark_module.BENCHMARK_AVAILABLE,
+    reason="liboqs is not available in this environment; run from WSL",
+)
+def test_run_still_defaults_to_the_768_65_pair(benchmark_client):
+    response = benchmark_client.get("/benchmark/run", params={"iterations": 1})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kem_results"][0]["algorithm"] == "ML-KEM-768"
+    assert body["sig_results"][0]["algorithm"] == "ML-DSA-65"

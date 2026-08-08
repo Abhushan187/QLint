@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import PqcBenchmark from "./PqcBenchmark";
+import { API_BASE } from "./api";
 
-const API_BASE = "http://localhost:8000";
+// The app is a single view-switcher, so "routing" here is just the two paths
+// that have to be linkable from outside: the scanner and the public benchmark
+// page. Vite serves index.html for both, so a direct visit works.
+const HOME_PATH = "/";
+const BENCHMARK_PATH = "/benchmark";
 const SEVERITY_RANK = { critical: 0, warning: 1, safe: 2, info: 3 };
 const FILTER_TABS = [
   { key: "all", label: "All Issues" },
@@ -68,9 +74,16 @@ function expandedFromResult(data) {
   return expanded;
 }
 
-function Logo() {
+function Logo({ onNavigate }) {
   return (
-    <a href="#" className="logo">
+    <a
+      href={HOME_PATH}
+      className="logo"
+      onClick={(e) => {
+        e.preventDefault();
+        onNavigate(HOME_PATH);
+      }}
+    >
       <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
         <polygon
           points="28,16 22,26.39 10,26.39 4,16 10,5.61 22,5.61"
@@ -201,6 +214,8 @@ function Navbar({
   onShowHistory,
   onShowAdmin,
   onDisconnectGithub,
+  route,
+  onNavigate,
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = () => setSidebarOpen(false);
@@ -218,10 +233,22 @@ function Navbar({
             <span className="hamburger-line" />
             <span className="hamburger-line" />
           </button>
-          <Logo />
+          <Logo onNavigate={onNavigate} />
         </div>
         <div className="nav-actions">
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          <a
+            className={`nav-btn${
+              route === BENCHMARK_PATH ? " nav-btn-active" : ""
+            }`}
+            href={BENCHMARK_PATH}
+            onClick={(e) => {
+              e.preventDefault();
+              onNavigate(BENCHMARK_PATH);
+            }}
+          >
+            PQC Benchmark Lab
+          </a>
           <a
             className="nav-btn"
             href="https://github.com/Abhushan187/QLint"
@@ -298,6 +325,17 @@ function Navbar({
         />
       )}
       <nav className={`sidebar${sidebarOpen ? " sidebar-open" : ""}`}>
+        <a
+          className="sidebar-item"
+          href={BENCHMARK_PATH}
+          onClick={(e) => {
+            e.preventDefault();
+            closeSidebar();
+            onNavigate(BENCHMARK_PATH);
+          }}
+        >
+          PQC Benchmark Lab
+        </a>
         <a
           className="sidebar-item"
           href="https://github.com/Abhushan187/QLint"
@@ -1717,6 +1755,7 @@ function Footer() {
 }
 
 export default function App() {
+  const [route, setRoute] = useState(() => window.location.pathname);
   const [view, setView] = useState("input");
   const [theme, setTheme] = useState("light");
   const [repoUrl, setRepoUrl] = useState("");
@@ -1769,6 +1808,21 @@ export default function App() {
   };
 
   useEffect(fetchRateLimit, []);
+
+  // Keep the back button working now that there is more than one path.
+  useEffect(() => {
+    const onPopState = () => setRoute(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const navigate = (path) => {
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, "", path);
+    }
+    setRoute(path);
+    window.scrollTo(0, 0);
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -2165,11 +2219,14 @@ export default function App() {
           setShowAdmin(true);
         }}
         onDisconnectGithub={disconnectGithub}
+        route={route}
+        onNavigate={navigate}
       />
       {toast && <Toast message={toast} />}
       <div className="main-content">
         <main className="main">
-          {view === "input" && (
+          {route === BENCHMARK_PATH && <PqcBenchmark />}
+          {route !== BENCHMARK_PATH && view === "input" && (
             <>
               <Hero />
               <ScanInputCard
@@ -2193,8 +2250,10 @@ export default function App() {
               <FooterCTA />
             </>
           )}
-          {view === "scanning" && <ScanningView repoUrl={repoUrl} />}
-          {view === "results" && scanResult && (
+          {route !== BENCHMARK_PATH && view === "scanning" && (
+            <ScanningView repoUrl={repoUrl} />
+          )}
+          {route !== BENCHMARK_PATH && view === "results" && scanResult && (
             <ResultsView
               result={scanResult}
               activeFilter={activeFilter}
