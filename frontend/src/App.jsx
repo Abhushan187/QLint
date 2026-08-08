@@ -749,6 +749,25 @@ function copyText(text) {
   return Promise.resolve();
 }
 
+// Only the fields ai_explainer.py actually reads get sent — the raw
+// snippet/col stay local to this browser tab.
+function explainRequestBody(finding) {
+  return {
+    algorithm: finding.algorithm,
+    severity: finding.severity,
+    attack_vector: finding.attack_vector,
+    replacement: finding.replacement,
+    replacement_reason: finding.replacement_reason,
+    identifier: finding.identifier,
+    match_type: finding.match_type,
+    language: finding.language,
+    quantum_vulnerable: finding.quantum_vulnerable,
+    classical_vulnerable: finding.classical_vulnerable,
+    file: finding.file,
+    line: finding.line,
+  };
+}
+
 function CopyButton({ text, variant }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
@@ -809,7 +828,68 @@ function FixPanels({ snippet }) {
   );
 }
 
+function ExplainBody({ loading, error, explanation, onRetry }) {
+  return (
+    <div className="explain-body">
+      {loading && (
+        <p className="explain-loading">
+          {"Asking the model about this finding\u2026"}
+        </p>
+      )}
+      {!loading && error && (
+        <div className="explain-error">
+          <p>{error}</p>
+          <button className="explain-retry" type="button" onClick={onRetry}>
+            Try again
+          </button>
+        </div>
+      )}
+      {!loading && !error && explanation && (
+        <p className="explain-text">{explanation}</p>
+      )}
+    </div>
+  );
+}
+
 function FindingRow({ finding, fixKey, fixExpanded, onToggleFix }) {
+  const [explainOpen, setExplainOpen] = useState(false);
+  const [explainLoading, setExplainLoading] = useState(false);
+  const [explainError, setExplainError] = useState(null);
+  const [explanation, setExplanation] = useState(null);
+
+  const fetchExplanation = async () => {
+    setExplainLoading(true);
+    setExplainError(null);
+    try {
+      const res = await fetch(`${API_BASE}/scan/explain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(explainRequestBody(finding)),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.detail || `HTTP ${res.status}`);
+      setExplanation(body.explanation);
+    } catch (err) {
+      setExplainError(err.message || "Could not generate an explanation.");
+    } finally {
+      setExplainLoading(false);
+    }
+  };
+
+  const toggleExplain = () => {
+    if (explainOpen) {
+      setExplainOpen(false);
+      return;
+    }
+    setExplainOpen(true);
+    if (!explanation && !explainLoading) fetchExplanation();
+  };
+
+  const retryExplain = () => {
+    setExplanation(null);
+    fetchExplanation();
+  };
+
   return (
     <div className="finding">
       <div className="finding-top">
@@ -833,14 +913,36 @@ function FindingRow({ finding, fixKey, fixExpanded, onToggleFix }) {
         </p>
       )}
       <p className="finding-reason">{finding.replacement_reason}</p>
-      <button
-        className="fix-toggle"
-        type="button"
-        onClick={() => onToggleFix(fixKey)}
-      >
-        {fixExpanded ? "Hide fix" : "Show fix"}
-      </button>
+      <div className="finding-actions">
+        <button
+          className="fix-toggle"
+          type="button"
+          onClick={() => onToggleFix(fixKey)}
+        >
+          {fixExpanded ? "Hide fix" : "Show fix"}
+        </button>
+        <button
+          className="fix-toggle explain-toggle"
+          type="button"
+          onClick={toggleExplain}
+          disabled={explainLoading}
+        >
+          {explainLoading
+            ? "Explaining\u2026"
+            : explainOpen
+            ? "Hide explanation"
+            : "Explain with AI"}
+        </button>
+      </div>
       {fixExpanded && <FixPanels snippet={finding.fix_snippet} />}
+      {explainOpen && (
+        <ExplainBody
+          loading={explainLoading}
+          error={explainError}
+          explanation={explanation}
+          onRetry={retryExplain}
+        />
+      )}
     </div>
   );
 }
